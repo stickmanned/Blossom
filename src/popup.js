@@ -4,14 +4,53 @@ import './popup.css';
 
 const timerButton = document.getElementById('timerButton');
 const timerDisplay = document.getElementById('timerDisplay');
+const coinButton = document.getElementById('coinButton');
 const coinCountDisplay = document.querySelector('.coin-button__count');
 const settingsButton = document.getElementById('settingsButton');
 const domainsPane = document.getElementById('domainsPane');
 const domainForm = document.getElementById('domainForm');
 const domainInput = document.getElementById('domainInput');
 const domainsList = document.getElementById('domainsList');
+const shopPane = document.getElementById('shopPane');
+const shopItems = document.getElementById('shopItems');
+const shopStatus = document.getElementById('shopStatus');
+const gardenPlot = document.getElementById('gardenPlot');
+const gardenTrees = document.getElementById('gardenTrees');
+const treeTypeSelect = document.getElementById('treeTypeSelect');
+const plantingHint = document.getElementById('plantingHint');
+const gardenStatus = document.getElementById('gardenStatus');
 
 const BLOCKED_DOMAINS_KEY = 'blockedDomains';
+
+const TREE_DEFINITIONS = {
+	blossom: {
+		label: 'Blossom',
+		stages: [
+			{ threshold: 0, image: 'blossom stages/blossom 1.png' },
+			{ threshold: 120, image: 'blossom stages/blossom 2.png' },
+			{ threshold: 300, image: 'blossom stages/blossom 3.png' },
+			{ threshold: 600, image: 'blossom stages/blossom 4.png' },
+			{ threshold: 900, image: 'blossom stages/blossom 5.png' }
+		]
+	},
+	glowberry: {
+		label: 'Glowberry',
+		stages: [
+			{ threshold: 0, image: 'glowberry tree/glow 1.png' },
+			{ threshold: 180, image: 'glowberry tree/glow 2.png' },
+			{ threshold: 420, image: 'glowberry tree/glow 3.png' },
+			{ threshold: 720, image: 'glowberry tree/glow 4.png' }
+		]
+	},
+	fire: {
+		label: 'Fire',
+		stages: [
+			{ threshold: 0, image: 'fire tree/fire 1.png' },
+			{ threshold: 240, image: 'fire tree/fire 2.png' },
+			{ threshold: 600, image: 'fire tree/fire 3.png' }
+		]
+	}
+};
 
 const COIN_SOUND_PATHS = [
 	chrome.runtime.getURL('sounds/coins-1.wav'),
@@ -24,22 +63,49 @@ let uiIntervalId = null;
 let lastKnownState = null;
 let isToggling = false;
 let isAnimatingStop = false;
+let isAwaitingPlant = false;
+
 let shouldPlayContinuousCoinSound = false;
 let continuousCoinAudio = null;
 let coinSoundRunId = 0;
 let coinSoundRetryTimeoutId = null;
+
 let blockedDomains = [];
+let gardenState = {
+	points: 0,
+	totalFocusedSeconds: 0,
+	unlockedTreeTypes: ['blossom'],
+	plantedTrees: [],
+	treeCatalog: []
+};
 
 function formatElapsed(totalSeconds) {
-	const minutes = Math.floor(totalSeconds / 60);
-	const seconds = totalSeconds % 60;
+	const safeSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+	const minutes = Math.floor(safeSeconds / 60);
+	const seconds = safeSeconds % 60;
 	return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function applyGardenPlotTexture() {
+	if (!gardenPlot) {
+		return;
+	}
+
+	gardenPlot.style.backgroundImage = `url("${chrome.runtime.getURL('garden plot.png')}")`;
 }
 
 function sleep(ms) {
 	return new Promise((resolve) => {
 		window.setTimeout(resolve, ms);
 	});
+}
+
+function getRunningElapsedSeconds() {
+	if (!lastKnownState || !lastKnownState.isRunning || !lastKnownState.startTimestampMs) {
+		return 0;
+	}
+
+	return Math.floor(Math.max(0, Date.now() - lastKnownState.startTimestampMs) / 1000);
 }
 
 function getStorageLocal(keys) {
@@ -64,6 +130,41 @@ function setStorageLocal(items) {
 			}
 
 			resolve();
+		});
+	});
+}
+
+function sendRuntimeMessage(message) {
+	return new Promise((resolve, reject) => {
+		let isSettled = false;
+		const timeoutId = window.setTimeout(() => {
+			if (isSettled) {
+				return;
+			}
+
+			isSettled = true;
+			reject(new Error('Timer request timed out'));
+		}, 4000);
+
+		chrome.runtime.sendMessage(message, (response) => {
+			if (isSettled) {
+				return;
+			}
+
+			isSettled = true;
+			window.clearTimeout(timeoutId);
+
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError.message));
+				return;
+			}
+
+			if (!response || !response.ok) {
+				reject(new Error(response?.error || 'Unknown timer error'));
+				return;
+			}
+
+			resolve(response.state);
 		});
 	});
 }
@@ -159,52 +260,228 @@ async function removeBlockedDomain(domain) {
 	await persistBlockedDomains();
 }
 
-function setupBlockedDomainsPane() {
-	if (!settingsButton || !domainsPane || !domainForm || !domainInput || !domainsList) {
+function closeDomainsPane() {
+	if (!domainsPane || !settingsButton) {
 		return;
 	}
 
-	// Always start closed; it should only open from the button click.
 	domainsPane.classList.remove('is-open');
 	domainsPane.setAttribute('hidden', '');
 	settingsButton.setAttribute('aria-expanded', 'false');
+}
 
-	settingsButton.addEventListener('click', () => {
-		const isOpen = domainsPane.classList.contains('is-open');
-		if (!isOpen) {
-			domainsPane.classList.add('is-open');
-			domainsPane.removeAttribute('hidden');
-			settingsButton.setAttribute('aria-expanded', 'true');
-			domainInput.focus();
+function setShopPaneOpen(shouldOpen) {
+	if (!shopPane || !coinButton) {
+		return;
+	}
+
+	if (shouldOpen) {
+		shopPane.removeAttribute('hidden');
+		coinButton.setAttribute('aria-expanded', 'true');
+		closeDomainsPane();
+		return;
+	}
+
+	shopPane.setAttribute('hidden', '');
+	coinButton.setAttribute('aria-expanded', 'false');
+}
+
+function updatePointsDisplay(pointsValue) {
+	if (!coinCountDisplay) {
+		return;
+	}
+
+	coinCountDisplay.textContent = String(Math.max(0, Math.floor(pointsValue || 0)));
+}
+
+function getStageImageForTree(tree, elapsedSeconds) {
+	const definition = TREE_DEFINITIONS[tree.type] || TREE_DEFINITIONS.blossom;
+	let imagePath = definition.stages[0].image;
+
+	for (let index = 0; index < definition.stages.length; index += 1) {
+		if (elapsedSeconds >= definition.stages[index].threshold) {
+			imagePath = definition.stages[index].image;
+		}
+	}
+
+	return imagePath;
+}
+
+function getElapsedForTree(tree) {
+	if (tree.finalElapsedSeconds !== null && tree.finalElapsedSeconds !== undefined) {
+		return Math.max(0, Math.floor(tree.finalElapsedSeconds));
+	}
+
+	if (lastKnownState && lastKnownState.isRunning && lastKnownState.activeTreeId === tree.id) {
+		return getRunningElapsedSeconds();
+	}
+
+	return 0;
+}
+
+function renderTreeSelect() {
+	if (!treeTypeSelect) {
+		return;
+	}
+
+	const unlocked = Array.isArray(gardenState.unlockedTreeTypes) ? gardenState.unlockedTreeTypes : ['blossom'];
+	const selectedType = treeTypeSelect.value;
+
+	treeTypeSelect.textContent = '';
+	unlocked.forEach((treeType) => {
+		const option = document.createElement('option');
+		option.value = treeType;
+		option.textContent = TREE_DEFINITIONS[treeType]?.label || treeType;
+		treeTypeSelect.appendChild(option);
+	});
+
+	if (unlocked.includes(selectedType)) {
+		treeTypeSelect.value = selectedType;
+	}
+}
+
+function renderGardenTrees() {
+	if (!gardenTrees) {
+		return;
+	}
+
+	gardenTrees.textContent = '';
+
+	const trees = Array.isArray(gardenState.plantedTrees) ? gardenState.plantedTrees : [];
+	trees.forEach((tree) => {
+		const elapsed = getElapsedForTree(tree);
+		const imagePath = getStageImageForTree(tree, elapsed);
+		const image = document.createElement('img');
+		image.className = 'garden__tree-instance';
+		if (lastKnownState?.isRunning && lastKnownState.activeTreeId === tree.id) {
+			image.classList.add('is-active');
+		}
+
+		image.src = imagePath;
+		image.alt = `${TREE_DEFINITIONS[tree.type]?.label || 'Tree'} tree`;
+		image.style.left = `${tree.x}%`;
+		image.style.top = `${tree.y}%`;
+		gardenTrees.appendChild(image);
+	});
+}
+
+function renderGardenStatus() {
+	if (!gardenStatus) {
+		return;
+	}
+
+	const focusedSeconds = Math.max(0, Math.floor(gardenState.totalFocusedSeconds + getRunningElapsedSeconds()));
+	const treeCount = Array.isArray(gardenState.plantedTrees) ? gardenState.plantedTrees.length : 0;
+	gardenStatus.textContent = `Focused ${formatElapsed(focusedSeconds)} | Trees planted: ${treeCount}`;
+}
+
+function renderPlantingHint(message) {
+	if (!plantingHint) {
+		return;
+	}
+
+	plantingHint.textContent = message;
+}
+
+function renderShopState(statusMessage = '') {
+	if (!shopItems) {
+		return;
+	}
+
+	shopItems.textContent = '';
+	const catalog = Array.isArray(gardenState.treeCatalog) ? gardenState.treeCatalog : [];
+	catalog.forEach((item) => {
+		if (item.type === 'blossom') {
 			return;
 		}
 
-		domainsPane.classList.remove('is-open');
-		domainsPane.setAttribute('hidden', '');
-		settingsButton.setAttribute('aria-expanded', 'false');
+		const row = document.createElement('div');
+		row.className = `shop-pane__item${item.isUnlocked ? ' is-unlocked' : ''}`;
+
+		const info = document.createElement('div');
+		const name = document.createElement('p');
+		name.className = 'shop-pane__item-name';
+		name.textContent = item.label;
+		const desc = document.createElement('p');
+		desc.className = 'shop-pane__item-desc';
+		desc.textContent = item.isUnlocked ? 'Unlocked' : `Unlock cost: ${item.cost} coins`;
+
+		info.appendChild(name);
+		info.appendChild(desc);
+
+		const action = document.createElement('button');
+		action.type = 'button';
+		action.className = 'shop-pane__buy';
+		action.dataset.treeType = item.type;
+		action.textContent = item.isUnlocked ? 'Unlocked' : `Buy (${item.cost})`;
+		action.disabled = item.isUnlocked || !item.canBuy;
+
+		row.appendChild(info);
+		row.appendChild(action);
+		shopItems.appendChild(row);
 	});
 
-	domainForm.addEventListener('submit', async (event) => {
-		event.preventDefault();
-		await addBlockedDomain(domainInput.value);
-		domainInput.value = '';
-		domainInput.focus();
-	});
+	if (shopStatus) {
+		shopStatus.textContent = statusMessage || `Coins: ${gardenState.points}`;
+	}
+}
 
-	domainsList.addEventListener('click', async (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLElement)) {
-			return;
-		}
+function renderGarden() {
+	updatePointsDisplay(gardenState.points);
+	renderTreeSelect();
+	renderGardenTrees();
+	renderGardenStatus();
+	renderShopState();
+}
 
-		if (!target.classList.contains('domains-pane__remove')) {
-			return;
-		}
+function mergeGardenStateFromResponse(state) {
+	gardenState = {
+		...gardenState,
+		points: Math.max(0, Math.floor(state.points || 0)),
+		totalFocusedSeconds: Math.max(0, Math.floor(state.totalFocusedSeconds || 0)),
+		unlockedTreeTypes: Array.isArray(state.unlockedTreeTypes) ? state.unlockedTreeTypes : gardenState.unlockedTreeTypes,
+		plantedTrees: Array.isArray(state.plantedTrees) ? state.plantedTrees : gardenState.plantedTrees,
+		treeCatalog: Array.isArray(state.treeCatalog) ? state.treeCatalog : gardenState.treeCatalog
+	};
 
-		await removeBlockedDomain(target.dataset.domain || '');
-	});
+	renderGarden();
+}
 
-	loadBlockedDomains();
+function startPlantingMode() {
+	if (!gardenPlot || !treeTypeSelect) {
+		return;
+	}
+
+	isAwaitingPlant = true;
+	gardenPlot.classList.add('is-planting');
+	renderPlantingHint(`Planting ${TREE_DEFINITIONS[treeTypeSelect.value]?.label || 'tree'}: click anywhere on the plot.`);
+
+	if (timerButton) {
+		timerButton.textContent = 'Click to cancel planting';
+	}
+
+	setShopPaneOpen(false);
+	closeDomainsPane();
+}
+
+function cancelPlantingMode() {
+	isAwaitingPlant = false;
+	if (gardenPlot) {
+		gardenPlot.classList.remove('is-planting');
+	}
+
+	renderPlantingHint('Click start timer, then click the plot to plant.');
+
+	if (!timerButton) {
+		return;
+	}
+
+	if (lastKnownState?.isRunning) {
+		timerButton.textContent = 'Click to stop timer';
+		return;
+	}
+
+	timerButton.textContent = 'Click to start timer';
 }
 
 function cleanupContinuousCoinAudio() {
@@ -304,79 +581,27 @@ function startContinuousCoinSound() {
 	if (!continuousCoinAudio) {
 		continuousCoinAudio = new Audio();
 		continuousCoinAudio.preload = 'auto';
-		const runId = coinSoundRunId;
-		continuousCoinAudio.onended = () => {
-			if (!shouldPlayContinuousCoinSound || runId !== coinSoundRunId) {
-				return;
-			}
-
-			playContinuousCoinTick(runId);
-		};
-		continuousCoinAudio.onerror = () => {
-			if (!shouldPlayContinuousCoinSound || runId !== coinSoundRunId) {
-				return;
-			}
-
-			scheduleCoinSoundRetry(runId);
-		};
 	}
 
 	coinSoundRunId += 1;
 	const activeRunId = coinSoundRunId;
 
-	if (continuousCoinAudio) {
-		continuousCoinAudio.onended = () => {
-			if (!shouldPlayContinuousCoinSound || activeRunId !== coinSoundRunId) {
-				return;
-			}
+	continuousCoinAudio.onended = () => {
+		if (!shouldPlayContinuousCoinSound || activeRunId !== coinSoundRunId) {
+			return;
+		}
 
-			playContinuousCoinTick(activeRunId);
-		};
-		continuousCoinAudio.onerror = () => {
-			if (!shouldPlayContinuousCoinSound || activeRunId !== coinSoundRunId) {
-				return;
-			}
+		playContinuousCoinTick(activeRunId);
+	};
+	continuousCoinAudio.onerror = () => {
+		if (!shouldPlayContinuousCoinSound || activeRunId !== coinSoundRunId) {
+			return;
+		}
 
-			scheduleCoinSoundRetry(activeRunId);
-		};
-	}
+		scheduleCoinSoundRetry(activeRunId);
+	};
 
 	playContinuousCoinTick(activeRunId);
-}
-
-function sendRuntimeMessage(message) {
-	return new Promise((resolve, reject) => {
-		let isSettled = false;
-		const timeoutId = window.setTimeout(() => {
-			if (isSettled) {
-				return;
-			}
-
-			isSettled = true;
-			reject(new Error('Timer request timed out'));
-		}, 4000);
-
-		chrome.runtime.sendMessage(message, (response) => {
-			if (isSettled) {
-				return;
-			}
-
-			isSettled = true;
-			window.clearTimeout(timeoutId);
-
-			if (chrome.runtime.lastError) {
-				reject(new Error(chrome.runtime.lastError.message));
-				return;
-			}
-
-			if (!response || !response.ok) {
-				reject(new Error(response?.error || 'Unknown timer error'));
-				return;
-			}
-
-			resolve(response.state);
-		});
-	});
 }
 
 function getElapsedSeconds(state) {
@@ -394,12 +619,21 @@ function getElapsedSeconds(state) {
 function renderFromState(state) {
 	lastKnownState = state;
 
-	timerDisplay.textContent = formatElapsed(getElapsedSeconds(state));
-	timerButton.textContent = state.isRunning ? 'Click to stop timer' : 'Click to start timer';
-
-	if (coinCountDisplay) {
-		coinCountDisplay.textContent = String(Math.max(0, state.points || 0));
+	if (timerDisplay) {
+		timerDisplay.textContent = formatElapsed(getElapsedSeconds(state));
 	}
+
+	if (timerButton) {
+		if (state.isRunning) {
+			timerButton.textContent = 'Click to stop timer';
+		} else if (isAwaitingPlant) {
+			timerButton.textContent = 'Click to cancel planting';
+		} else {
+			timerButton.textContent = 'Click to start timer';
+		}
+	}
+
+	mergeGardenStateFromResponse(state);
 }
 
 function startUiTicker() {
@@ -412,7 +646,12 @@ function startUiTicker() {
 			return;
 		}
 
-		timerDisplay.textContent = formatElapsed(getElapsedSeconds(lastKnownState));
+		if (timerDisplay) {
+			timerDisplay.textContent = formatElapsed(getElapsedSeconds(lastKnownState));
+		}
+
+		renderGardenStatus();
+		renderGardenTrees();
 	}, 1000);
 }
 
@@ -438,14 +677,61 @@ async function refreshState() {
 	const state = await sendRuntimeMessage({ type: 'TIMER_GET_STATE' });
 	renderFromState(state);
 	syncUiTickerWithState(state);
+	return state;
 }
 
-async function toggleTimer() {
-	const wasRunning = Boolean(lastKnownState?.isRunning);
+async function refreshGardenState() {
+	const state = await sendRuntimeMessage({ type: 'GARDEN_GET_STATE' });
+	mergeGardenStateFromResponse(state);
+	return state;
+}
+
+async function animateStopConversion(state) {
+	const earnedElapsedMs = Math.max(0, Math.floor(state.earnedElapsedMs || 0));
+	const earnedPoints = Math.max(0, Math.floor(state.earnedPoints || 0));
+	const finalPoints = Math.max(0, Math.floor(state.points || 0));
+	const startingPoints = Math.max(0, finalPoints - earnedPoints);
+
+	updatePointsDisplay(startingPoints);
+	if (timerButton) {
+		timerButton.textContent = 'Click to start timer';
+	}
+
+	const totalSteps = Math.max(1, earnedPoints, Math.floor(earnedElapsedMs / 1000));
+	const delayPerStepMs = Math.max(50, Math.min(180, Math.floor(4000 / totalSteps)));
+
+	if (earnedPoints > 0) {
+		startContinuousCoinSound();
+	}
+
+	try {
+		for (let step = 1; step <= totalSteps; step += 1) {
+			const consumedMs = Math.floor((earnedElapsedMs * step) / totalSteps);
+			const remainingMs = Math.max(0, earnedElapsedMs - consumedMs);
+			if (timerDisplay) {
+				timerDisplay.textContent = formatElapsed(Math.floor(remainingMs / 1000));
+			}
+
+			const appliedPoints = Math.floor((earnedPoints * step) / totalSteps);
+			updatePointsDisplay(startingPoints + appliedPoints);
+
+			await sleep(delayPerStepMs);
+		}
+	} finally {
+		stopContinuousCoinSound();
+	}
+
+	if (timerDisplay) {
+		timerDisplay.textContent = formatElapsed(0);
+	}
+	updatePointsDisplay(finalPoints);
+}
+
+async function stopFocusSession() {
 	const state = await sendRuntimeMessage({ type: 'TIMER_TOGGLE' });
 
 	const shouldAnimateStop =
-		wasRunning &&
+		lastKnownState?.isRunning &&
 		!state.isRunning &&
 		(Math.max(0, state.earnedElapsedMs || 0) > 0 || Math.max(0, state.earnedPoints || 0) > 0);
 
@@ -460,55 +746,128 @@ async function toggleTimer() {
 
 	renderFromState(state);
 	syncUiTickerWithState(state);
-	return state;
+	await refreshGardenState().catch(() => {});
 }
 
-async function animateStopConversion(state) {
-	const earnedElapsedMs = Math.max(0, Math.floor(state.earnedElapsedMs || 0));
-	const earnedPoints = Math.max(0, Math.floor(state.earnedPoints || 0));
-	const finalPoints = Math.max(0, Math.floor(state.points || 0));
-	const startingPoints = Math.max(0, finalPoints - earnedPoints);
-
-	if (coinCountDisplay) {
-		coinCountDisplay.textContent = String(startingPoints);
-	}
-
-	timerButton.textContent = 'Click to start timer';
-
-	const totalSteps = Math.max(1, earnedPoints, Math.floor(earnedElapsedMs / 1000));
-	const delayPerStepMs = Math.max(50, Math.min(180, Math.floor(4000 / totalSteps)));
-
-	if (earnedPoints > 0) {
-		startContinuousCoinSound();
-	}
-
-	try {
-		for (let step = 1; step <= totalSteps; step += 1) {
-			const consumedMs = Math.floor((earnedElapsedMs * step) / totalSteps);
-			const remainingMs = Math.max(0, earnedElapsedMs - consumedMs);
-			timerDisplay.textContent = formatElapsed(Math.floor(remainingMs / 1000));
-
-			const appliedPoints = Math.floor((earnedPoints * step) / totalSteps);
-			if (coinCountDisplay) {
-				coinCountDisplay.textContent = String(startingPoints + appliedPoints);
-			}
-
-			await sleep(delayPerStepMs);
+async function startFocusSessionFromPlanting(xPercent, yPercent) {
+	const selectedType = treeTypeSelect?.value || 'blossom';
+	const state = await sendRuntimeMessage({
+		type: 'TIMER_TOGGLE',
+		planting: {
+			type: selectedType,
+			x: xPercent,
+			y: yPercent
 		}
-	} finally {
-		stopContinuousCoinSound();
-	}
+	});
 
-	timerDisplay.textContent = formatElapsed(0);
-	if (coinCountDisplay) {
-		coinCountDisplay.textContent = String(finalPoints);
-	}
+	cancelPlantingMode();
+	renderFromState(state);
+	syncUiTickerWithState(state);
 }
 
-if (timerButton && timerDisplay) {
-	refreshState().catch(() => {
-		timerDisplay.textContent = formatElapsed(0);
-		timerButton.textContent = 'Click to start timer';
+function setupShopPane() {
+	if (!coinButton || !shopPane || !shopItems) {
+		return;
+	}
+
+	setShopPaneOpen(false);
+	renderShopState();
+
+	coinButton.addEventListener('click', () => {
+		const isHidden = shopPane.hasAttribute('hidden');
+		setShopPaneOpen(isHidden);
+	});
+
+	shopItems.addEventListener('click', async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLButtonElement)) {
+			return;
+		}
+
+		const treeType = target.dataset.treeType;
+		if (!treeType) {
+			return;
+		}
+
+		target.disabled = true;
+		try {
+			const response = await sendRuntimeMessage({ type: 'GARDEN_BUY_TREE', treeType });
+			mergeGardenStateFromResponse(response);
+			renderShopState(response.errorCode === 'INSUFFICIENT_POINTS' ? 'Not enough coins.' : 'Tree unlocked.');
+		} catch (_error) {
+			renderShopState('Could not complete purchase.');
+		}
+	});
+}
+
+function setupBlockedDomainsPane() {
+	if (!settingsButton || !domainsPane || !domainForm || !domainInput || !domainsList) {
+		return;
+	}
+
+	domainsPane.classList.remove('is-open');
+	domainsPane.setAttribute('hidden', '');
+	settingsButton.setAttribute('aria-expanded', 'false');
+
+	settingsButton.addEventListener('click', () => {
+		const isOpen = domainsPane.classList.contains('is-open');
+		if (!isOpen) {
+			domainsPane.classList.add('is-open');
+			domainsPane.removeAttribute('hidden');
+			settingsButton.setAttribute('aria-expanded', 'true');
+			setShopPaneOpen(false);
+			domainInput.focus();
+			return;
+		}
+
+		closeDomainsPane();
+	});
+
+	domainForm.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		await addBlockedDomain(domainInput.value);
+		domainInput.value = '';
+		domainInput.focus();
+	});
+
+	domainsList.addEventListener('click', async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		if (!target.classList.contains('domains-pane__remove')) {
+			return;
+		}
+
+		await removeBlockedDomain(target.dataset.domain || '');
+	});
+
+	loadBlockedDomains();
+}
+
+function setupPlantingFlow() {
+	if (!gardenPlot || !timerButton) {
+		return;
+	}
+
+	gardenPlot.addEventListener('click', async (event) => {
+		if (!isAwaitingPlant || lastKnownState?.isRunning || isToggling) {
+			return;
+		}
+
+		const rect = gardenPlot.getBoundingClientRect();
+		const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
+		const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+
+		isToggling = true;
+		try {
+			await startFocusSessionFromPlanting(xPercent, yPercent);
+		} catch (_error) {
+			renderPlantingHint('Could not plant tree. Please try again.');
+		} finally {
+			isToggling = false;
+		}
 	});
 
 	timerButton.addEventListener('click', async () => {
@@ -516,20 +875,47 @@ if (timerButton && timerDisplay) {
 			return;
 		}
 
-		isToggling = true;
-
-		try {
-			await toggleTimer();
-		} catch (_error) {
-			await refreshState().catch(() => {
-				timerDisplay.textContent = formatElapsed(0);
-				timerButton.textContent = 'Click to start timer';
-			});
-		} finally {
-			isToggling = false;
+		if (lastKnownState?.isRunning) {
+			isToggling = true;
+			try {
+				await stopFocusSession();
+			} catch (_error) {
+				await refreshState().catch(() => {
+					if (timerDisplay) {
+						timerDisplay.textContent = formatElapsed(0);
+					}
+					timerButton.textContent = 'Click to start timer';
+				});
+			} finally {
+				isToggling = false;
+			}
+			return;
 		}
+
+		if (isAwaitingPlant) {
+			cancelPlantingMode();
+			return;
+		}
+
+		startPlantingMode();
 	});
 }
 
 setupBlockedDomainsPane();
+setupShopPane();
+setupPlantingFlow();
+applyGardenPlotTexture();
 
+refreshState()
+	.then(() => refreshGardenState())
+	.catch(() => {
+		if (timerDisplay) {
+			timerDisplay.textContent = formatElapsed(0);
+		}
+		if (timerButton) {
+			timerButton.textContent = 'Click to start timer';
+		}
+		renderGarden();
+	});
+
+cancelPlantingMode();

@@ -26,8 +26,8 @@ html {
 }
 
 body {
-	width: 500px;
-	height: 500px;
+	width: 400px;
+	height: 550px;
 }
 
 .app {
@@ -64,6 +64,92 @@ body {
 	line-height: 1;
 }
 
+.shop-pane {
+	position: absolute;
+	top: 72px;
+	right: 12px;
+	width: calc(100% - 24px);
+	padding: 12px;
+	border: 2px solid var(--primary-color);
+	border-radius: 12px;
+	background: rgba(31, 40, 35, 0.95);
+	text-align: left;
+	z-index: 6;
+}
+
+.shop-pane[hidden] {
+	display: none !important;
+}
+
+.shop-pane__title {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--text-color);
+}
+
+.shop-pane__subtitle {
+	margin: 4px 0 10px;
+	font-size: 13px;
+	color: rgba(255, 241, 246, 0.85);
+}
+
+.shop-pane__items {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.shop-pane__item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 8px;
+	border: 1px solid rgba(247, 177, 191, 0.5);
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.05);
+}
+
+.shop-pane__item.is-unlocked {
+	border-color: rgba(85, 175, 121, 0.8);
+}
+
+.shop-pane__item-name {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--text-color);
+}
+
+.shop-pane__item-desc {
+	margin: 2px 0 0;
+	font-size: 12px;
+	color: rgba(255, 241, 246, 0.85);
+}
+
+.shop-pane__buy {
+	padding: 8px 10px;
+	border: 1px solid var(--primary-color);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--text-color);
+	font-size: 13px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.shop-pane__buy:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.shop-pane__status {
+	margin: 8px 0 0;
+	font-size: 12px;
+	color: rgba(255, 241, 246, 0.9);
+}
+
 .domains-pane {
 	display: none;
 	position: absolute;
@@ -75,7 +161,7 @@ body {
 	border-radius: 12px;
 	background: rgba(31, 40, 35, 0.95);
 	text-align: left;
-	z-index: 5;
+	z-index: 6;
 }
 
 .domains-pane.is-open {
@@ -229,7 +315,91 @@ hr.divider {
 
 .subtitle {
 	font-size: 18px;
-	margin-bottom: 30px;
+	margin-bottom: 14px;
+}
+
+.garden {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 16px;
+}
+
+.garden__plot {
+	position: relative;
+	width: 360px;
+	height: 260px;
+	border-radius: 14px;
+	overflow: hidden;
+	border: 2px solid rgba(247, 177, 191, 0.55);
+	background-color: rgba(0, 0, 0, 0.15);
+	background-image: none;
+	background-repeat: repeat;
+	background-size: 120px auto;
+}
+
+.garden__plot-image {
+	display: none;
+}
+
+.garden__trees {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.garden__tree-instance {
+	position: absolute;
+	width: 88px;
+	height: 88px;
+	object-fit: contain;
+	transform: translate(-50%, -100%);
+	filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.32));
+}
+
+.garden__tree-instance.is-active {
+	filter: drop-shadow(0 8px 14px rgba(255, 241, 246, 0.35));
+}
+
+.garden__plot.is-planting {
+	cursor: crosshair;
+	outline: 2px dashed rgba(255, 241, 246, 0.7);
+	outline-offset: 2px;
+}
+
+.garden__planting-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.garden__planting-label {
+	font-size: 13px;
+	font-weight: 600;
+	color: rgba(255, 241, 246, 0.9);
+}
+
+.garden__tree-select {
+	padding: 6px 8px;
+	border-radius: 8px;
+	border: 1px solid var(--primary-color);
+	background: rgba(31, 40, 35, 0.9);
+	color: var(--text-color);
+	font-size: 13px;
+}
+
+.garden__hint {
+	margin: 0;
+	font-size: 12px;
+	color: rgba(255, 241, 246, 0.85);
+}
+
+.garden__status {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: rgba(255, 241, 246, 0.95);
 }
 
 button.button {
