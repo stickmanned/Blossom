@@ -98,7 +98,9 @@ function toResponseState(timerState, currencyState) {
 		elapsedMs,
 		elapsedSeconds: Math.floor(elapsedMs / 1000),
 		points: basePoints,
-		msPerPoint: MS_PER_POINT
+		msPerPoint: MS_PER_POINT,
+		earnedPoints: 0,
+		earnedElapsedMs: 0
 	};
 }
 
@@ -117,7 +119,7 @@ async function handleToggleTimer() {
 		const stoppedState = {
 			isRunning: false,
 			startTimestampMs: null,
-			elapsedMs
+			elapsedMs: 0
 		};
 
 		await Promise.all([
@@ -125,7 +127,11 @@ async function handleToggleTimer() {
 			setStoredCurrencyState(nextCurrency)
 		]);
 
-		return toResponseState(stoppedState, nextCurrency);
+		return {
+			...toResponseState(stoppedState, nextCurrency),
+			earnedPoints,
+			earnedElapsedMs: elapsedMs
+		};
 	}
 
 	const startedState = {
