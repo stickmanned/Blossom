@@ -1,32 +1,23 @@
 <!DOCTYPE html>
+
 <html lang="en">
-<head>
-		<meta charset="UTF-8">
-		<title>My Chrome Extension</title>
-		<link rel="stylesheet" href="popup.css" />
-</head>
-<body>
-	<div class="app">
-		<p class="counter-label">Counter</p>
-		<div id="counter" class="counter"></div>
-		<div class="button-container">
-			<button id="decrementBtn" class="button">-</button>
-			<button id="incrementBtn" class="button">+</button>
+	<head>
+			<meta charset="UTF-8">
+			<title>My Chrome Extension</title>
+			<link rel="stylesheet" href="popup.css" />
+	</head>
+	<body>
+		<div class="app">
+			<button id="coinButton" class="coin-button" type="button" aria-label="Coins">
+				<img src="coin.png" alt="Coin" class="coin-button__icon" />
+				<span class="coin-button__count">42</span>
+			</button>
+			<h1 class="title is-3">Blossom</h1>
+			<p class="subtitle">This is the popup content.</p>
+			<button id="timerButton" class="button is-primary mb-4">Click to start timer</button>
+			<h1 class="subtitle is-1" id="timerDisplay"></h1>
 		</div>
 
-		<hr class="divider" />
-
-		<p class="title">Chrome Extension is Ready!</p>
-		<p class="subtitle">Start by updating <code>popup.html</code></p>
-	</div>
-
-	<script src="popup.js"></script>
-
-	<!--
-		This HTML file opens when you click on icon from the toolbar.
-
-		To begin the development, run `npm run watch`.
-		To create a production bundle, use `npm run build`.
-	-->
-</body>
+		<script src="popup.js"></script>
+	</body>
 </html>

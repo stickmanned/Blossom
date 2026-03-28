@@ -1,3 +1,5 @@
+@import "https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css";
+
 /* normalize css starts here */
 *,
 *::before,
@@ -9,84 +11,110 @@
 /* normalize css ends here */
 
 
+:root {
+	--primary-color: #f7b1bf;
+	--secondary-color: #55af79;
+	--text-color: #fff1f6;
+	--button-bg-color: #f7b1bf;
+	--button-text-color: #fff1f6;
+}
+
 html {
 	font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif;
-	color: #222;
+	background-color: var(--secondary-color);
+	color: var(--text-color);
 }
 
 body {
-	width: 350px;
-	height: 300px;
+	width: 500px;
+	height: 500px;
 }
 
 .app {
 	height: 100%;
 	display: flex;
-	align-items: center;
-	justify-content: center;
+	align-content: center;
 	flex-direction: column;
 	text-align: center;
 	padding: 20px;
+	position: relative;
+}
+
+.coin-button {
+	all: unset;
+	appearance: none;
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	display: inline-grid;
+	grid-auto-flow: column;
+	align-items: center;
+	justify-items: center;
+	gap: 10px;
+	padding: 6px 10px;
+	border: 3px solid var(--primary-color);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-color);
+	box-sizing: border-box;
+	font: inherit;
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.coin-button__icon {
+	width: 28px;
+	height: 28px;
+	display: block;
+}
+
+.coin-button__count {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	margin: 0;
+	padding: 0;
+	text-align: center;
+	font-weight: 600;
+	font-size: 22px;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+
+hr.divider {
+    border: 0;
+	background-color: var(--text-color);
+	margin: 20px 0;
+	width: 100%;
+	font-size: 0;
 }
 
 .title {
-	font-size: 18px;
-	font-weight: 600;
-	margin-bottom: 10px;
+	font-size: 24px;
+	font-weight: bold;
+	color: var(--primary-color);
+	margin-bottom: 20px;
+}
+
+.subtitle, p {
+	color: var(--text-color);
 }
 
 .subtitle {
-	font-size: 12px;
+	font-size: 18px;
+	margin-bottom: 30px;
 }
 
-code {
-	font-size: 12px;
-	font-family: inherit;
-	background-color: rgba(254, 237, 185, .3);
-	padding: 2px 4px;
-	border-radius: 2px;
-}
-
-.counter-label {
-	font-size: 12px;
-	margin-bottom: 5px;
-}
-
-.counter {
-	font-size: 36px;
-	font-weight: 700;
-}
-
-.button-container {
-	margin-top: 15px;
-}
-
-.button {
-	border: 0;
-	display: inline-block;
+button.button {
+	background-color: var(--button-bg-color);
+	color: var(--button-text-color);
+	border: none;
+	border-radius: 4px;
 	padding: 10px 20px;
-	margin-right: 4px;
-	margin-left: 4px;
-	background-color: bisque;
 	font-size: 16px;
 	cursor: pointer;
-	border-radius: 4px;
-	text-decoration: none;
-	transition: transform .2s ease;
-	user-select: none;
-}
-
-.button:focus {
-	outline: none;
-}
-
-.button:hover {
-	transform: scale(1.1);
-}
-
-.divider {
-	margin: 30px auto 25px;
-	width: 50px;
-	border: .5px dashed #000;
-	opacity: .1;
+	transition: background-color 0.3s ease;
 }
