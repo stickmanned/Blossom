@@ -40,6 +40,130 @@ body {
 	position: relative;
 }
 
+.settings-button {
+	all: unset;
+	appearance: none;
+	position: absolute;
+	top: 12px;
+	left: 12px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 52px;
+	height: 52px;
+	border: 3px solid var(--primary-color);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-color);
+	box-sizing: border-box;
+	cursor: pointer;
+}
+
+.settings-button__icon {
+	font-size: 28px;
+	line-height: 1;
+}
+
+.domains-pane {
+	display: none;
+	position: absolute;
+	top: 72px;
+	left: 12px;
+	width: calc(100% - 24px);
+	padding: 12px;
+	border: 2px solid var(--primary-color);
+	border-radius: 12px;
+	background: rgba(31, 40, 35, 0.95);
+	text-align: left;
+	z-index: 5;
+}
+
+.domains-pane.is-open {
+	display: block;
+}
+
+.domains-pane[hidden] {
+	display: none !important;
+}
+
+.domains-pane__title {
+	margin: 0 0 8px;
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--text-color);
+}
+
+.domains-pane__form {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.domains-pane__input {
+	width: 100%;
+	padding: 8px 10px;
+	border: 1px solid var(--primary-color);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.08);
+	color: var(--text-color);
+	font-size: 14px;
+}
+
+.domains-pane__input::placeholder {
+	color: rgba(255, 241, 246, 0.65);
+}
+
+.domains-pane__add {
+	padding: 8px 12px;
+	border: 1px solid var(--primary-color);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--text-color);
+	font-size: 14px;
+	cursor: pointer;
+}
+
+.domains-pane__list {
+	list-style: none;
+	max-height: 150px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 0;
+	margin: 0;
+}
+
+.domains-pane__item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 8px;
+	border: 1px solid rgba(247, 177, 191, 0.5);
+	border-radius: 8px;
+	font-size: 14px;
+	color: var(--text-color);
+	background: rgba(255, 255, 255, 0.05);
+}
+
+.domains-pane__remove {
+	padding: 4px 8px;
+	border: 1px solid rgba(247, 177, 191, 0.8);
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-color);
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.domains-pane__empty {
+	font-size: 13px;
+	color: rgba(255, 241, 246, 0.75);
+	padding: 4px 2px;
+}
+
 .coin-button {
 	all: unset;
 	appearance: none;

@@ -4,14 +4,28 @@
 	<head>
 			<meta charset="UTF-8">
 			<title>Blossom - Habit Tracker</title>
+			<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
 			<link rel="stylesheet" href="popup.css" />
 	</head>
 	<body>
 		<div class="app">
+			<button id="settingsButton" class="settings-button" type="button" aria-label="Blocked domains">
+				<span class="material-symbols-rounded settings-button__icon" aria-hidden="true">block</span>
+			</button>
 			<button id="coinButton" class="coin-button" type="button" aria-label="Coins">
 				<img src="coin.png" alt="Coin" class="coin-button__icon" />
 				<span class="coin-button__count">42</span>
 			</button>
+
+			<section id="domainsPane" class="domains-pane" hidden>
+				<h2 class="domains-pane__title">Blocked domains</h2>
+				<form id="domainForm" class="domains-pane__form">
+					<input id="domainInput" class="domains-pane__input" type="text" placeholder="example.com" autocomplete="off" />
+					<button class="domains-pane__add" type="submit">Add</button>
+				</form>
+				<ul id="domainsList" class="domains-pane__list"></ul>
+			</section>
+
 			<h1 class="title is-3">Blossom</h1>
 			<p class="subtitle">This is the popup content.</p>
 			<button id="timerButton" class="button is-primary mb-4">Click to start timer</button>

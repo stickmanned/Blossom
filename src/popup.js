@@ -5,6 +5,13 @@ import './popup.css';
 const timerButton = document.getElementById('timerButton');
 const timerDisplay = document.getElementById('timerDisplay');
 const coinCountDisplay = document.querySelector('.coin-button__count');
+const settingsButton = document.getElementById('settingsButton');
+const domainsPane = document.getElementById('domainsPane');
+const domainForm = document.getElementById('domainForm');
+const domainInput = document.getElementById('domainInput');
+const domainsList = document.getElementById('domainsList');
+
+const BLOCKED_DOMAINS_KEY = 'blockedDomains';
 
 const COIN_SOUND_PATHS = [
 	chrome.runtime.getURL('sounds/coins-1.wav'),
@@ -21,6 +28,7 @@ let shouldPlayContinuousCoinSound = false;
 let continuousCoinAudio = null;
 let coinSoundRunId = 0;
 let coinSoundRetryTimeoutId = null;
+let blockedDomains = [];
 
 function formatElapsed(totalSeconds) {
 	const minutes = Math.floor(totalSeconds / 60);
@@ -32,6 +40,171 @@ function sleep(ms) {
 	return new Promise((resolve) => {
 		window.setTimeout(resolve, ms);
 	});
+}
+
+function getStorageLocal(keys) {
+	return new Promise((resolve, reject) => {
+		chrome.storage.local.get(keys, (result) => {
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError.message));
+				return;
+			}
+
+			resolve(result);
+		});
+	});
+}
+
+function setStorageLocal(items) {
+	return new Promise((resolve, reject) => {
+		chrome.storage.local.set(items, () => {
+			if (chrome.runtime.lastError) {
+				reject(new Error(chrome.runtime.lastError.message));
+				return;
+			}
+
+			resolve();
+		});
+	});
+}
+
+function normalizeDomain(input) {
+	const trimmed = String(input || '').trim().toLowerCase();
+	if (!trimmed) {
+		return '';
+	}
+
+	const candidate = trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+
+	try {
+		const parsed = new URL(candidate);
+		return parsed.hostname.replace(/^www\./, '');
+	} catch (_error) {
+		return '';
+	}
+}
+
+function renderBlockedDomains() {
+	if (!domainsList) {
+		return;
+	}
+
+	domainsList.textContent = '';
+
+	if (blockedDomains.length === 0) {
+		const emptyItem = document.createElement('li');
+		emptyItem.className = 'domains-pane__empty';
+		emptyItem.textContent = 'No blocked domains yet.';
+		domainsList.appendChild(emptyItem);
+		return;
+	}
+
+	blockedDomains.forEach((domain) => {
+		const item = document.createElement('li');
+		item.className = 'domains-pane__item';
+
+		const label = document.createElement('span');
+		label.textContent = domain;
+
+		const removeButton = document.createElement('button');
+		removeButton.type = 'button';
+		removeButton.className = 'domains-pane__remove';
+		removeButton.textContent = 'Remove';
+		removeButton.dataset.domain = domain;
+
+		item.appendChild(label);
+		item.appendChild(removeButton);
+		domainsList.appendChild(item);
+	});
+}
+
+async function loadBlockedDomains() {
+	try {
+		const result = await getStorageLocal([BLOCKED_DOMAINS_KEY]);
+		const storedDomains = Array.isArray(result[BLOCKED_DOMAINS_KEY]) ? result[BLOCKED_DOMAINS_KEY] : [];
+		blockedDomains = storedDomains
+			.map((entry) => normalizeDomain(entry))
+			.filter(Boolean)
+			.filter((entry, index, all) => all.indexOf(entry) === index)
+			.sort();
+		renderBlockedDomains();
+	} catch (_error) {
+		blockedDomains = [];
+		renderBlockedDomains();
+	}
+}
+
+async function persistBlockedDomains() {
+	await setStorageLocal({ [BLOCKED_DOMAINS_KEY]: blockedDomains });
+}
+
+async function addBlockedDomain(rawInput) {
+	const normalized = normalizeDomain(rawInput);
+	if (!normalized || blockedDomains.includes(normalized)) {
+		return;
+	}
+
+	blockedDomains = [...blockedDomains, normalized].sort();
+	renderBlockedDomains();
+	await persistBlockedDomains();
+}
+
+async function removeBlockedDomain(domain) {
+	if (!domain) {
+		return;
+	}
+
+	blockedDomains = blockedDomains.filter((entry) => entry !== domain);
+	renderBlockedDomains();
+	await persistBlockedDomains();
+}
+
+function setupBlockedDomainsPane() {
+	if (!settingsButton || !domainsPane || !domainForm || !domainInput || !domainsList) {
+		return;
+	}
+
+	// Always start closed; it should only open from the button click.
+	domainsPane.classList.remove('is-open');
+	domainsPane.setAttribute('hidden', '');
+	settingsButton.setAttribute('aria-expanded', 'false');
+
+	settingsButton.addEventListener('click', () => {
+		const isOpen = domainsPane.classList.contains('is-open');
+		if (!isOpen) {
+			domainsPane.classList.add('is-open');
+			domainsPane.removeAttribute('hidden');
+			settingsButton.setAttribute('aria-expanded', 'true');
+			domainInput.focus();
+			return;
+		}
+
+		domainsPane.classList.remove('is-open');
+		domainsPane.setAttribute('hidden', '');
+		settingsButton.setAttribute('aria-expanded', 'false');
+	});
+
+	domainForm.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		await addBlockedDomain(domainInput.value);
+		domainInput.value = '';
+		domainInput.focus();
+	});
+
+	domainsList.addEventListener('click', async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		if (!target.classList.contains('domains-pane__remove')) {
+			return;
+		}
+
+		await removeBlockedDomain(target.dataset.domain || '');
+	});
+
+	loadBlockedDomains();
 }
 
 function cleanupContinuousCoinAudio() {
@@ -357,4 +530,6 @@ if (timerButton && timerDisplay) {
 		}
 	});
 }
+
+setupBlockedDomainsPane();
 
