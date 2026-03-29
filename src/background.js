@@ -21,12 +21,12 @@ const TREE_DEFINITIONS = {
 	},
 	glowberry: {
 		label: 'Glowberry',
-		cost: 600,
+		cost: 300,
 		pointsPerInterval: 10
 	},
 	fire: {
 		label: 'Fire',
-		cost: 100,
+		cost: 50,
 		pointsPerInterval: 5
 	}
 };
@@ -54,7 +54,10 @@ function getDefaultFocusStats() {
 
 function getDefaultGardenState() {
 	return {
-		unlockedTreeTypes: ['blossom'],
+		treeInventory: {
+			glowberry: 0,
+			fire: 0
+		},
 		plantedTrees: [
 			{
 				id: 'starter-tree',
@@ -118,9 +121,16 @@ function sanitizeTreeEntry(entry, index) {
 
 function sanitizeGardenState(storedState) {
 	const base = getDefaultGardenState();
-	const unlockedFromStorage = Array.isArray(storedState.unlockedTreeTypes) ? storedState.unlockedTreeTypes : [];
-	const unlocked = ['blossom', ...unlockedFromStorage.map((item) => sanitizeTreeType(item))]
-		.filter((item, index, all) => all.indexOf(item) === index);
+	const legacyUnlocked = Array.isArray(storedState.unlockedTreeTypes) ? storedState.unlockedTreeTypes : [];
+	const legacyInventoryBoost = {
+		glowberry: legacyUnlocked.includes('glowberry') ? 1 : 0,
+		fire: legacyUnlocked.includes('fire') ? 1 : 0
+	};
+	const storedInventory = storedState.treeInventory || {};
+	const treeInventory = {
+		glowberry: Math.max(legacyInventoryBoost.glowberry, sanitizeCount(storedInventory.glowberry)),
+		fire: Math.max(legacyInventoryBoost.fire, sanitizeCount(storedInventory.fire))
+	};
 
 	const planted = Array.isArray(storedState.plantedTrees)
 		? storedState.plantedTrees.map((tree, index) => sanitizeTreeEntry(tree, index))
@@ -128,7 +138,7 @@ function sanitizeGardenState(storedState) {
 
 	return {
 		...base,
-		unlockedTreeTypes: unlocked,
+		treeInventory,
 		plantedTrees: planted.length > 0 ? planted : base.plantedTrees
 	};
 }
@@ -215,7 +225,7 @@ function setStoredGardenState(nextState) {
 		chrome.storage.local.set(
 			{
 				[GARDEN_STORAGE_KEY]: {
-					unlockedTreeTypes: sanitized.unlockedTreeTypes,
+					treeInventory: sanitized.treeInventory,
 					plantedTrees: sanitized.plantedTrees
 				}
 			},
@@ -241,13 +251,13 @@ function getRunningPoints(elapsedMs, treeType) {
 	return intervals * pointsPerInterval;
 }
 
-function createTreeCatalog(unlockedTreeTypes, points) {
+function createTreeCatalog(treeInventory, points) {
 	return Object.keys(TREE_DEFINITIONS).map((treeType) => ({
 		type: treeType,
 		label: TREE_DEFINITIONS[treeType].label,
 		cost: TREE_DEFINITIONS[treeType].cost,
-		isUnlocked: unlockedTreeTypes.includes(treeType),
-		canBuy: !unlockedTreeTypes.includes(treeType) && points >= TREE_DEFINITIONS[treeType].cost
+		ownedCount: treeType === 'blossom' ? null : sanitizeCount(treeInventory[treeType]),
+		canBuy: points >= TREE_DEFINITIONS[treeType].cost
 	}));
 }
 
@@ -263,9 +273,9 @@ function toResponseState(timerState, currencyState, focusStats, gardenState) {
 		points,
 		msPerPoint: MS_PER_POINT,
 		totalFocusedSeconds: sanitizeCount(focusStats.totalFocusedSeconds),
-		unlockedTreeTypes: safeGarden.unlockedTreeTypes,
+		treeInventory: safeGarden.treeInventory,
 		plantedTrees: safeGarden.plantedTrees,
-		treeCatalog: createTreeCatalog(safeGarden.unlockedTreeTypes, points),
+		treeCatalog: createTreeCatalog(safeGarden.treeInventory, points),
 		earnedPoints: 0,
 		earnedElapsedMs: 0
 	};
@@ -364,12 +374,20 @@ async function handleToggleTimer(planting) {
 	}
 
 	const newTree = buildTreeFromPlanting(planting);
-	if (!currentGardenState.unlockedTreeTypes.includes(newTree.type)) {
-		throw new Error('Selected tree type is locked');
+	if (newTree.type !== 'blossom' && sanitizeCount(currentGardenState.treeInventory[newTree.type]) <= 0) {
+		throw new Error('Selected tree type is not available');
+	}
+
+	const nextInventory = {
+		...currentGardenState.treeInventory
+	};
+	if (newTree.type !== 'blossom') {
+		nextInventory[newTree.type] = sanitizeCount(nextInventory[newTree.type]) - 1;
 	}
 
 	const nextGarden = {
 		...currentGardenState,
+		treeInventory: nextInventory,
 		plantedTrees: [...currentGardenState.plantedTrees, newTree]
 	};
 	const startedState = {
@@ -411,10 +429,6 @@ async function handleBuyTree(treeType) {
 		getStoredFocusStats()
 	]);
 
-	if (gardenState.unlockedTreeTypes.includes(normalizedType)) {
-		return toResponseState(timerState, currencyState, focusStats, gardenState);
-	}
-
 	const cost = TREE_DEFINITIONS[normalizedType].cost;
 	const points = sanitizePoints(currencyState.totalPoints);
 	if (points < cost) {
@@ -427,7 +441,10 @@ async function handleBuyTree(treeType) {
 	const nextCurrency = { totalPoints: points - cost };
 	const nextGarden = {
 		...gardenState,
-		unlockedTreeTypes: [...gardenState.unlockedTreeTypes, normalizedType]
+		treeInventory: {
+			...gardenState.treeInventory,
+			[normalizedType]: sanitizeCount(gardenState.treeInventory[normalizedType]) + 1
+		}
 	};
 
 	await Promise.all([

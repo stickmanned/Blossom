@@ -15,39 +15,45 @@ const shopPane = document.getElementById('shopPane');
 const shopItems = document.getElementById('shopItems');
 const shopStatus = document.getElementById('shopStatus');
 const gardenPlot = document.getElementById('gardenPlot');
+const gardenWorld = document.getElementById('gardenWorld');
 const gardenTrees = document.getElementById('gardenTrees');
 const treeTypeSelect = document.getElementById('treeTypeSelect');
 const plantingHint = document.getElementById('plantingHint');
 const gardenStatus = document.getElementById('gardenStatus');
 
 const BLOCKED_DOMAINS_KEY = 'blockedDomains';
+const GARDEN_TILE_SIZE_PX = 120;
+const GARDEN_WORLD_TILES_X = 6;
+const GARDEN_WORLD_TILES_Y = 6;
+const GARDEN_WORLD_WIDTH_PX = GARDEN_TILE_SIZE_PX * GARDEN_WORLD_TILES_X;
+const GARDEN_WORLD_HEIGHT_PX = GARDEN_TILE_SIZE_PX * GARDEN_WORLD_TILES_Y;
 
 const TREE_DEFINITIONS = {
 	blossom: {
 		label: 'Blossom',
 		stages: [
 			{ threshold: 0, image: 'blossom stages/blossom 1.png' },
-			{ threshold: 120, image: 'blossom stages/blossom 2.png' },
-			{ threshold: 300, image: 'blossom stages/blossom 3.png' },
-			{ threshold: 600, image: 'blossom stages/blossom 4.png' },
-			{ threshold: 900, image: 'blossom stages/blossom 5.png' }
+			{ threshold: 12, image: 'blossom stages/blossom 2.png' },
+			{ threshold: 30, image: 'blossom stages/blossom 3.png' },
+			{ threshold: 60, image: 'blossom stages/blossom 4.png' },
+			{ threshold: 90, image: 'blossom stages/blossom 5.png' }
 		]
 	},
 	glowberry: {
 		label: 'Glowberry',
 		stages: [
 			{ threshold: 0, image: 'glowberry tree/glow 1.png' },
-			{ threshold: 180, image: 'glowberry tree/glow 2.png' },
-			{ threshold: 420, image: 'glowberry tree/glow 3.png' },
-			{ threshold: 720, image: 'glowberry tree/glow 4.png' }
+			{ threshold: 18, image: 'glowberry tree/glow 2.png' },
+			{ threshold: 42, image: 'glowberry tree/glow 3.png' },
+			{ threshold: 72, image: 'glowberry tree/glow 4.png' }
 		]
 	},
 	fire: {
 		label: 'Fire',
 		stages: [
 			{ threshold: 0, image: 'fire tree/fire 1.png' },
-			{ threshold: 240, image: 'fire tree/fire 2.png' },
-			{ threshold: 600, image: 'fire tree/fire 3.png' }
+			{ threshold: 24, image: 'fire tree/fire 2.png' },
+			{ threshold: 60, image: 'fire tree/fire 3.png' }
 		]
 	}
 };
@@ -70,11 +76,24 @@ let continuousCoinAudio = null;
 let coinSoundRunId = 0;
 let coinSoundRetryTimeoutId = null;
 
+let gardenViewOffsetX = 0;
+let gardenViewOffsetY = 0;
+let isDraggingGarden = false;
+let dragStartClientX = 0;
+let dragStartClientY = 0;
+let dragStartOffsetX = 0;
+let dragStartOffsetY = 0;
+let dragDistancePx = 0;
+let suppressNextPlotClick = false;
+
 let blockedDomains = [];
 let gardenState = {
 	points: 0,
 	totalFocusedSeconds: 0,
-	unlockedTreeTypes: ['blossom'],
+	treeInventory: {
+		glowberry: 0,
+		fire: 0
+	},
 	plantedTrees: [],
 	treeCatalog: []
 };
@@ -87,11 +106,51 @@ function formatElapsed(totalSeconds) {
 }
 
 function applyGardenPlotTexture() {
-	if (!gardenPlot) {
+	if (!gardenWorld) {
 		return;
 	}
 
-	gardenPlot.style.backgroundImage = `url("${chrome.runtime.getURL('garden plot.png')}")`;
+	gardenWorld.style.backgroundImage = `url("${chrome.runtime.getURL('garden plot.png')}")`;
+}
+
+function clamp(value, min, max) {
+	return Math.min(max, Math.max(min, value));
+}
+
+function getPanBounds() {
+	if (!gardenPlot) {
+		return {
+			maxX: 0,
+			maxY: 0
+		};
+	}
+
+	const maxX = Math.max(0, GARDEN_WORLD_WIDTH_PX - gardenPlot.clientWidth);
+	const maxY = Math.max(0, GARDEN_WORLD_HEIGHT_PX - gardenPlot.clientHeight);
+
+	return { maxX, maxY };
+}
+
+function applyGardenTransform() {
+	if (!gardenWorld) {
+		return;
+	}
+
+	gardenWorld.style.transform = `translate(${-gardenViewOffsetX}px, ${-gardenViewOffsetY}px)`;
+}
+
+function recenterGardenViewport() {
+	const bounds = getPanBounds();
+	gardenViewOffsetX = Math.floor(bounds.maxX / 2);
+	gardenViewOffsetY = Math.floor(bounds.maxY / 2);
+	applyGardenTransform();
+}
+
+function setGardenViewOffset(nextX, nextY) {
+	const bounds = getPanBounds();
+	gardenViewOffsetX = clamp(nextX, 0, bounds.maxX);
+	gardenViewOffsetY = clamp(nextY, 0, bounds.maxY);
+	applyGardenTransform();
 }
 
 function sleep(ms) {
@@ -324,19 +383,29 @@ function renderTreeSelect() {
 		return;
 	}
 
-	const unlocked = Array.isArray(gardenState.unlockedTreeTypes) ? gardenState.unlockedTreeTypes : ['blossom'];
+	const availableTypes = ['blossom'];
+	if ((gardenState.treeInventory?.glowberry || 0) > 0) {
+		availableTypes.push('glowberry');
+	}
+	if ((gardenState.treeInventory?.fire || 0) > 0) {
+		availableTypes.push('fire');
+	}
+
 	const selectedType = treeTypeSelect.value;
 
 	treeTypeSelect.textContent = '';
-	unlocked.forEach((treeType) => {
+	availableTypes.forEach((treeType) => {
 		const option = document.createElement('option');
 		option.value = treeType;
-		option.textContent = TREE_DEFINITIONS[treeType]?.label || treeType;
+		const countLabel = treeType === 'blossom' ? '' : ` x${gardenState.treeInventory?.[treeType] || 0}`;
+		option.textContent = `${TREE_DEFINITIONS[treeType]?.label || treeType}${countLabel}`;
 		treeTypeSelect.appendChild(option);
 	});
 
-	if (unlocked.includes(selectedType)) {
+	if (availableTypes.includes(selectedType)) {
 		treeTypeSelect.value = selectedType;
+	} else {
+		treeTypeSelect.value = 'blossom';
 	}
 }
 
@@ -396,7 +465,8 @@ function renderShopState(statusMessage = '') {
 		}
 
 		const row = document.createElement('div');
-		row.className = `shop-pane__item${item.isUnlocked ? ' is-unlocked' : ''}`;
+		const ownedCount = Number(item.ownedCount || 0);
+		row.className = `shop-pane__item${ownedCount > 0 ? ' is-unlocked' : ''}`;
 
 		const info = document.createElement('div');
 		const name = document.createElement('p');
@@ -404,7 +474,7 @@ function renderShopState(statusMessage = '') {
 		name.textContent = item.label;
 		const desc = document.createElement('p');
 		desc.className = 'shop-pane__item-desc';
-		desc.textContent = item.isUnlocked ? 'Unlocked' : `Unlock cost: ${item.cost} coins`;
+		desc.textContent = `Cost: ${item.cost} coins | Owned: ${ownedCount}`;
 
 		info.appendChild(name);
 		info.appendChild(desc);
@@ -413,8 +483,8 @@ function renderShopState(statusMessage = '') {
 		action.type = 'button';
 		action.className = 'shop-pane__buy';
 		action.dataset.treeType = item.type;
-		action.textContent = item.isUnlocked ? 'Unlocked' : `Buy (${item.cost})`;
-		action.disabled = item.isUnlocked || !item.canBuy;
+		action.textContent = `Buy (${item.cost})`;
+		action.disabled = !item.canBuy;
 
 		row.appendChild(info);
 		row.appendChild(action);
@@ -439,7 +509,10 @@ function mergeGardenStateFromResponse(state) {
 		...gardenState,
 		points: Math.max(0, Math.floor(state.points || 0)),
 		totalFocusedSeconds: Math.max(0, Math.floor(state.totalFocusedSeconds || 0)),
-		unlockedTreeTypes: Array.isArray(state.unlockedTreeTypes) ? state.unlockedTreeTypes : gardenState.unlockedTreeTypes,
+		treeInventory: {
+			...gardenState.treeInventory,
+			...(state.treeInventory || {})
+		},
 		plantedTrees: Array.isArray(state.plantedTrees) ? state.plantedTrees : gardenState.plantedTrees,
 		treeCatalog: Array.isArray(state.treeCatalog) ? state.treeCatalog : gardenState.treeCatalog
 	};
@@ -468,6 +541,7 @@ function cancelPlantingMode() {
 	isAwaitingPlant = false;
 	if (gardenPlot) {
 		gardenPlot.classList.remove('is-planting');
+		gardenPlot.classList.remove('is-dragging');
 	}
 
 	renderPlantingHint('Click start timer, then click the plot to plant.');
@@ -793,7 +867,7 @@ function setupShopPane() {
 		try {
 			const response = await sendRuntimeMessage({ type: 'GARDEN_BUY_TREE', treeType });
 			mergeGardenStateFromResponse(response);
-			renderShopState(response.errorCode === 'INSUFFICIENT_POINTS' ? 'Not enough coins.' : 'Tree unlocked.');
+			renderShopState(response.errorCode === 'INSUFFICIENT_POINTS' ? 'Not enough coins.' : 'Tree purchased.');
 		} catch (_error) {
 			renderShopState('Could not complete purchase.');
 		}
@@ -851,14 +925,72 @@ function setupPlantingFlow() {
 		return;
 	}
 
+	const stopDragging = () => {
+		if (!isDraggingGarden) {
+			return;
+		}
+
+		isDraggingGarden = false;
+		gardenPlot.classList.remove('is-dragging');
+	};
+
+	gardenPlot.addEventListener('mousedown', (event) => {
+		if (event.button !== 0) {
+			return;
+		}
+
+		isDraggingGarden = true;
+		dragStartClientX = event.clientX;
+		dragStartClientY = event.clientY;
+		dragStartOffsetX = gardenViewOffsetX;
+		dragStartOffsetY = gardenViewOffsetY;
+		dragDistancePx = 0;
+		gardenPlot.classList.add('is-dragging');
+	});
+
+	window.addEventListener('mousemove', (event) => {
+		if (!isDraggingGarden) {
+			return;
+		}
+
+		const deltaX = event.clientX - dragStartClientX;
+		const deltaY = event.clientY - dragStartClientY;
+		dragDistancePx = Math.max(dragDistancePx, Math.abs(deltaX), Math.abs(deltaY));
+
+		setGardenViewOffset(dragStartOffsetX - deltaX, dragStartOffsetY - deltaY);
+	});
+
+	window.addEventListener('mouseup', () => {
+		if (!isDraggingGarden) {
+			return;
+		}
+
+		if (dragDistancePx > 4) {
+			suppressNextPlotClick = true;
+		}
+
+		stopDragging();
+	});
+
+	window.addEventListener('mouseleave', stopDragging);
+
 	gardenPlot.addEventListener('click', async (event) => {
+		if (suppressNextPlotClick) {
+			suppressNextPlotClick = false;
+			return;
+		}
+
 		if (!isAwaitingPlant || lastKnownState?.isRunning || isToggling) {
 			return;
 		}
 
 		const rect = gardenPlot.getBoundingClientRect();
-		const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
-		const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+		const viewportX = clamp(event.clientX - rect.left, 0, rect.width);
+		const viewportY = clamp(event.clientY - rect.top, 0, rect.height);
+		const worldX = viewportX + gardenViewOffsetX;
+		const worldY = viewportY + gardenViewOffsetY;
+		const xPercent = (worldX / GARDEN_WORLD_WIDTH_PX) * 100;
+		const yPercent = (worldY / GARDEN_WORLD_HEIGHT_PX) * 100;
 
 		isToggling = true;
 		try {
@@ -905,6 +1037,7 @@ setupBlockedDomainsPane();
 setupShopPane();
 setupPlantingFlow();
 applyGardenPlotTexture();
+recenterGardenViewport();
 
 refreshState()
 	.then(() => refreshGardenState())

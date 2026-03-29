@@ -19,7 +19,7 @@
 
 			<section id="shopPane" class="shop-pane" hidden>
 				<h2 class="shop-pane__title">Garden Shop</h2>
-				<p class="shop-pane__subtitle">Unlock new tree types to plant in focus sessions.</p>
+				<p class="shop-pane__subtitle">Buy individual trees to plant in focus sessions.</p>
 				<div id="shopItems" class="shop-pane__items"></div>
 				<p id="shopStatus" class="shop-pane__status"></p>
 			</section>
@@ -36,13 +36,15 @@
 			<h1 class="title is-3">Blossom</h1>
 			<p class="subtitle">Grow your garden while you focus.</p>
 
-			<button id="timerButton" class="button is-primary mb-4">Click to start timer</button>
-			<h1 class="subtitle is-1" id="timerDisplay"></h1>
+			<button id="timerButton" class="button is-primary">Click to start timer</button>
+			<h1 class="subtitle is-2" id="timerDisplay"></h1>
 
 			<section class="garden" aria-label="Garden progress">
 				<div id="gardenPlot" class="garden__plot">
 					<img src="garden plot.png" alt="Garden plot" class="garden__plot-image" />
-					<div id="gardenTrees" class="garden__trees" aria-hidden="true"></div>
+					<div id="gardenWorld" class="garden__world" aria-hidden="true">
+						<div id="gardenTrees" class="garden__trees" aria-hidden="true"></div>
+					</div>
 				</div>
 				<div class="garden__planting-row">
 					<label class="garden__planting-label" for="treeTypeSelect">Tree type</label>

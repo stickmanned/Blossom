@@ -329,18 +329,29 @@ hr.divider {
 .garden__plot {
 	position: relative;
 	width: 360px;
-	height: 260px;
+	height: 300px;
 	border-radius: 14px;
 	overflow: hidden;
 	border: 2px solid rgba(247, 177, 191, 0.55);
 	background-color: rgba(0, 0, 0, 0.15);
-	background-image: none;
-	background-repeat: repeat;
-	background-size: 120px auto;
+	cursor: grab;
 }
 
 .garden__plot-image {
 	display: none;
+}
+
+.garden__world {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 720px;
+	height: 720px;
+	background-color: rgba(0, 0, 0, 0.15);
+	background-image: none;
+	background-repeat: repeat;
+	background-size: 120px 120px;
+	will-change: transform;
 }
 
 .garden__trees {
@@ -366,6 +377,10 @@ hr.divider {
 	cursor: crosshair;
 	outline: 2px dashed rgba(255, 241, 246, 0.7);
 	outline-offset: 2px;
+}
+
+.garden__plot.is-dragging {
+	cursor: grabbing;
 }
 
 .garden__planting-row {
