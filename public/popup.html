@@ -1,60 +1,138 @@
 <!DOCTYPE html>
 
 <html lang="en">
-	<head>
-			<meta charset="UTF-8">
-			<title>Blossom - Habit Tracker</title>
-			<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
-			<link rel="stylesheet" href="popup.css" />
-	</head>
-	<body>
-		<div class="app">
-			<button id="settingsButton" class="settings-button" type="button" aria-label="Blocked domains">
-				<span class="material-symbols-rounded settings-button__icon" aria-hidden="true">block</span>
-			</button>
-			<button id="coinButton" class="coin-button" type="button" aria-label="Coins">
-				<img src="coin.png" alt="Coin" class="coin-button__icon" />
-				<span class="coin-button__count">42</span>
-			</button>
 
-			<section id="shopPane" class="shop-pane" hidden>
-				<h2 class="shop-pane__title">Garden Shop</h2>
-				<p class="shop-pane__subtitle">Buy individual trees to plant in focus sessions.</p>
-				<div id="shopItems" class="shop-pane__items"></div>
-				<p id="shopStatus" class="shop-pane__status"></p>
-			</section>
+<head>
+	<meta charset="UTF-8">
+	<title>Blossom - Habit Tracker</title>
+	<link rel="stylesheet"
+		href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
+	<link rel="stylesheet" href="popup.css" />
+</head>
 
-			<section id="domainsPane" class="domains-pane" hidden>
-				<h2 class="domains-pane__title">Blocked domains</h2>
-				<form id="domainForm" class="domains-pane__form">
-					<input id="domainInput" class="domains-pane__input" type="text" placeholder="example.com" autocomplete="off" />
-					<button class="domains-pane__add" type="submit">Add</button>
-				</form>
-				<ul id="domainsList" class="domains-pane__list"></ul>
-			</section>
+<body>
+	<div class="app">
+		<button id="settingsButton" class="settings-button" type="button" aria-label="Blocked domains">
+			<span class="material-symbols-rounded settings-button__icon" aria-hidden="true">block</span>
+		</button>
+		<button id="coinButton" class="coin-button" type="button" aria-label="Coins">
+			<img src="coin.png" alt="Coin" class="coin-button__icon" />
+			<span class="coin-button__count">42</span>
+		</button>
 
-			<h1 class="title is-3">Blossom</h1>
-			<p class="subtitle">Grow your garden while you focus.</p>
+		<section id="domainsPane" class="domains-pane" hidden>
+			<h2 class="domains-pane__title">Blocked domains</h2>
+			<form id="domainForm" class="domains-pane__form">
+				<input id="domainInput" class="domains-pane__input" type="text" placeholder="example.com"
+					autocomplete="off" />
+				<button class="domains-pane__add" type="submit">Add</button>
+			</form>
+			<ul id="domainsList" class="domains-pane__list"></ul>
+		</section>
 
-			<button id="timerButton" class="button is-primary">Click to start timer</button>
-			<h1 class="subtitle is-2" id="timerDisplay"></h1>
-
-			<section class="garden" aria-label="Garden progress">
-				<div id="gardenPlot" class="garden__plot">
-					<img src="garden plot.png" alt="Garden plot" class="garden__plot-image" />
-					<div id="gardenWorld" class="garden__world" aria-hidden="true">
-						<div id="gardenTrees" class="garden__trees" aria-hidden="true"></div>
+		<section id="shopPane" class="shop-pane" hidden>
+			<div class="shop-pane__header">
+				<div class="shop-pane__header-left">
+					<h2 class="shop-pane__title">Tree Shop</h2>
+					<p class="shop-pane__subtitle" id="shopStatus">Spend coins to unlock new tree species.</p>
+				</div>
+				<button id="expandGardenBtn" class="shop-pane__expand-btn" type="button">
+					<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;">expand_content</span>
+					Expand Garden
+					<span id="expandGardenCost" class="shop-pane__expand-cost"></span>
+				</button>
+			</div>
+			
+			<!-- Using a CSS grid for tiles -->
+			<div id="shopItems" class="shop-pane__grid"></div>
+			
+			<!-- Bottom slice-up sheet for the selected tree -->
+			<div id="shopDetailSheet" class="shop-detail-sheet is-hidden">
+				<div class="shop-detail-sheet__inner">
+					<img id="shopDetailIcon" class="shop-detail-sheet__icon" src="" alt="" />
+					<div class="shop-detail-sheet__info">
+						<h3 id="shopDetailName" class="shop-detail-sheet__name"></h3>
+						<p id="shopDetailDesc" class="shop-detail-sheet__desc"></p>
+						<p id="shopDetailStats" class="shop-detail-sheet__stats"></p>
 					</div>
 				</div>
-				<div class="garden__planting-row">
-					<label class="garden__planting-label" for="treeTypeSelect">Tree type</label>
-					<select id="treeTypeSelect" class="garden__tree-select"></select>
+				
+				<div id="shopDetailPurchaseArea" class="shop-detail-sheet__purchase-area">
+					<div class="shop-detail-sheet__mass-buy">
+						<button id="shopDetailMinus" class="shop-detail-sheet__qty-btn" type="button" aria-label="Decrease quantity">−</button>
+						<input id="shopDetailQty" class="shop-detail-sheet__qty-input" type="number" min="1" value="1" />
+						<button id="shopDetailPlus" class="shop-detail-sheet__qty-btn" type="button" aria-label="Increase quantity">+</button>
+						<button id="shopDetailMax" class="shop-detail-sheet__max-btn" type="button">MAX</button>
+					</div>
+					
+					<div class="shop-detail-sheet__action">
+						<p id="shopDetailTotal" class="shop-detail-sheet__total-cost"></p>
+						<button id="shopDetailBuy" class="shop-detail-sheet__buy" type="button">Buy</button>
+					</div>
 				</div>
-				<p id="plantingHint" class="garden__hint">Click start timer, then click the plot to plant.</p>
-				<p id="gardenStatus" class="garden__status">Stage 1 of 5</p>
-			</section>
+
+				<button id="shopDetailClose" class="shop-detail-sheet__close" aria-label="Close details">
+					<span class="material-symbols-rounded">close</span>
+				</button>
+			</div>
+		</section>
+
+		<h1 class="title is-3" style="margin-bottom: 8px;">Blossom</h1>
+		
+		<div class="timer-section">
+			<h1 class="timer-section__display" id="timerDisplay">00:00</h1>
+			<button id="timerButton" class="timer-section__button">Click to start timer</button>
 		</div>
 
-		<script src="popup.js"></script>
-	</body>
+		<div class="garden">
+			<div class="garden__planting-row">
+				<span class="garden__planting-label">Tree:</span>
+				<select id="treeTypeSelect" class="garden__tree-select"></select>
+			</div>
+			<p id="plantingHint" class="garden__hint">Click start timer, then click the plot to plant.</p>
+			
+			<div id="gardenPlot" class="garden__plot">
+				<div id="gardenWorld" class="garden__world">
+					<div id="gardenTrees" class="garden__trees"></div>
+				</div>
+			</div>
+			<p id="gardenStatus" class="garden__status"></p>
+			
+			<footer class="app-footer">
+				<a href="https://github.com/stickmanned/Blossom" target="_blank" class="footer-link" aria-label="GitHub Repository">
+					<svg class="footer-link__icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+					</svg>
+					GitHub
+				</a>
+				<a href="https://buymeacoffee.com/williamwen" target="_blank" class="footer-link" aria-label="Buy me a coffee">
+					<span class="material-symbols-rounded footer-link__icon">coffee</span>
+					Buy me a coffee
+				</a>
+			</footer>
+		</div>
+	</div>
+
+	<!-- Super Secret Developer Panel ("BlossomDev") -->
+	<div id="devPanel" class="dev-panel">
+		<div class="dev-panel__content">
+			<h2 class="dev-panel__title">Super Secret Developer Mode</h2>
+			<div class="dev-panel__field">
+				<label>Set Coins:</label>
+				<input type="number" id="devPointsInput" placeholder="Coins">
+			</div>
+			<div class="dev-panel__field">
+				<label>Set Active Timer (seconds):</label>
+				<input type="number" id="devTimeInput" placeholder="Seconds">
+			</div>
+			<div class="dev-panel__actions">
+				<button id="devApply" class="btn btn-primary" style="margin-right: 8px;">Apply Changes</button>
+				<button id="devReset" class="btn btn-danger" style="margin-right: 8px;">Reset All</button>
+				<button id="devClose" class="btn btn-secondary">Close</button>
+			</div>
+		</div>
+	</div>
+
+	<script src="popup.js"></script>
+</body>
 </html>

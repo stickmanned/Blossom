@@ -10,24 +10,34 @@ const CURRENCY_STORAGE_KEY = 'currencyState';
 const FOCUS_STATS_STORAGE_KEY = 'focusStats';
 const GARDEN_STORAGE_KEY = 'gardenState';
 
-// Testing default: 1 point per second. Change this to tune conversion later.
-const MS_PER_POINT = 1000;
+// Testing default: 1 point per minute. 
+const MS_PER_POINT = 60000;
+
+const GARDEN_TILE_SIZE_PX = 120;
+const GARDEN_WORLD_TILES_X = 6;
+const GARDEN_WORLD_TILES_Y = 6;
 
 const TREE_DEFINITIONS = {
 	blossom: {
 		label: 'Blossom',
+		description: 'A delicate starter tree that grows gently in the breeze. Your first companion.',
 		cost: 0,
-		pointsPerInterval: 1
+		pointsPerInterval: 1,
+		growthTimeMin: 60
 	},
 	glowberry: {
 		label: 'Glowberry',
+		description: 'A radiant magical tree sprouting luminescent berries. High reward yields.',
 		cost: 300,
-		pointsPerInterval: 10
+		pointsPerInterval: 5,
+		growthTimeMin: 300
 	},
 	fire: {
 		label: 'Fire',
+		description: 'A blazing tree hardened by magma. Burns brightly during focus sessions.',
 		cost: 50,
-		pointsPerInterval: 5
+		pointsPerInterval: 2,
+		growthTimeMin: 120
 	}
 };
 
@@ -58,16 +68,8 @@ function getDefaultGardenState() {
 			glowberry: 0,
 			fire: 0
 		},
-		plantedTrees: [
-			{
-				id: 'starter-tree',
-				type: 'blossom',
-				x: 50,
-				y: 84,
-				finalElapsedSeconds: 0,
-				createdAtMs: Date.now()
-			}
-		]
+		plantedTrees: [],
+		gardenExpansions: 0
 	};
 }
 
@@ -92,7 +94,7 @@ function sanitizePercent(value, fallback) {
 		return fallback;
 	}
 
-	return Math.max(6, Math.min(94, value));
+	return Math.max(0, Math.min(100, value));
 }
 
 function sanitizeTreeType(value) {
@@ -136,10 +138,13 @@ function sanitizeGardenState(storedState) {
 		? storedState.plantedTrees.map((tree, index) => sanitizeTreeEntry(tree, index))
 		: [];
 
+	const gardenExpansions = Math.min(100, sanitizeCount(storedState.gardenExpansions || 0));
+
 	return {
 		...base,
 		treeInventory,
-		plantedTrees: planted.length > 0 ? planted : base.plantedTrees
+		plantedTrees: planted.length > 0 ? planted : base.plantedTrees,
+		gardenExpansions
 	};
 }
 
@@ -226,7 +231,8 @@ function setStoredGardenState(nextState) {
 			{
 				[GARDEN_STORAGE_KEY]: {
 					treeInventory: sanitized.treeInventory,
-					plantedTrees: sanitized.plantedTrees
+					plantedTrees: sanitized.plantedTrees,
+					gardenExpansions: sanitized.gardenExpansions
 				}
 			},
 			() => {
@@ -255,9 +261,12 @@ function createTreeCatalog(treeInventory, points) {
 	return Object.keys(TREE_DEFINITIONS).map((treeType) => ({
 		type: treeType,
 		label: TREE_DEFINITIONS[treeType].label,
+		description: TREE_DEFINITIONS[treeType].description,
 		cost: TREE_DEFINITIONS[treeType].cost,
+		pointsPerInterval: TREE_DEFINITIONS[treeType].pointsPerInterval,
+		growthTimeMin: TREE_DEFINITIONS[treeType].growthTimeMin,
 		ownedCount: treeType === 'blossom' ? null : sanitizeCount(treeInventory[treeType]),
-		canBuy: points >= TREE_DEFINITIONS[treeType].cost
+		canBuy: treeType !== 'blossom' && points >= TREE_DEFINITIONS[treeType].cost
 	}));
 }
 
@@ -265,6 +274,8 @@ function toResponseState(timerState, currencyState, focusStats, gardenState) {
 	const elapsedMs = getElapsedMs(timerState);
 	const points = sanitizePoints(currencyState.totalPoints);
 	const safeGarden = sanitizeGardenState(gardenState || {});
+	const expansions = safeGarden.gardenExpansions;
+	const expandCost = expansions < 100 ? Math.floor(100 * Math.pow(2, expansions)) : null;
 
 	return {
 		...timerState,
@@ -276,6 +287,8 @@ function toResponseState(timerState, currencyState, focusStats, gardenState) {
 		treeInventory: safeGarden.treeInventory,
 		plantedTrees: safeGarden.plantedTrees,
 		treeCatalog: createTreeCatalog(safeGarden.treeInventory, points),
+		gardenExpansions: expansions,
+		gardenExpandCost: expandCost,
 		earnedPoints: 0,
 		earnedElapsedMs: 0
 	};
@@ -416,11 +429,13 @@ async function getGardenResponse() {
 	return toResponseState(timerState, currencyState, focusStats, gardenState);
 }
 
-async function handleBuyTree(treeType) {
+async function handleBuyTree(treeType, quantity = 1) {
 	const normalizedType = sanitizeTreeType(treeType);
 	if (normalizedType === 'blossom') {
 		return getGardenResponse();
 	}
+
+	const qty = Math.max(1, sanitizeCount(quantity));
 
 	const [currencyState, gardenState, timerState, focusStats] = await Promise.all([
 		getStoredCurrencyState(),
@@ -429,7 +444,7 @@ async function handleBuyTree(treeType) {
 		getStoredFocusStats()
 	]);
 
-	const cost = TREE_DEFINITIONS[normalizedType].cost;
+	const cost = TREE_DEFINITIONS[normalizedType].cost * qty;
 	const points = sanitizePoints(currencyState.totalPoints);
 	if (points < cost) {
 		return {
@@ -443,8 +458,66 @@ async function handleBuyTree(treeType) {
 		...gardenState,
 		treeInventory: {
 			...gardenState.treeInventory,
-			[normalizedType]: sanitizeCount(gardenState.treeInventory[normalizedType]) + 1
+			[normalizedType]: sanitizeCount(gardenState.treeInventory[normalizedType]) + qty
 		}
+	};
+
+	await Promise.all([
+		setStoredCurrencyState(nextCurrency),
+		setStoredGardenState(nextGarden)
+	]);
+
+	return toResponseState(timerState, nextCurrency, focusStats, nextGarden);
+}
+
+async function handleExpandGarden() {
+	const [currencyState, gardenState, timerState, focusStats] = await Promise.all([
+		getStoredCurrencyState(),
+		getStoredGardenState(),
+		getStoredTimerState(),
+		getStoredFocusStats()
+	]);
+
+	const expansions = sanitizeCount(gardenState.gardenExpansions || 0);
+	if (expansions >= 100) {
+		return {
+			...toResponseState(timerState, currencyState, focusStats, gardenState),
+			errorCode: 'MAX_EXPANSIONS'
+		};
+	}
+
+	const cost = Math.floor(100 * Math.pow(2, expansions));
+	const points = sanitizePoints(currencyState.totalPoints);
+	if (points < cost) {
+		return {
+			...toResponseState(timerState, currencyState, focusStats, gardenState),
+			errorCode: 'INSUFFICIENT_POINTS'
+		};
+	}
+
+	const nextCurrency = { totalPoints: points - cost };
+
+	const oldW = (GARDEN_WORLD_TILES_X + expansions * 2) * GARDEN_TILE_SIZE_PX;
+	const oldH = (GARDEN_WORLD_TILES_Y + expansions * 2) * GARDEN_TILE_SIZE_PX;
+	const newExpansions = expansions + 1;
+	const newW = (GARDEN_WORLD_TILES_X + newExpansions * 2) * GARDEN_TILE_SIZE_PX;
+	const newH = (GARDEN_WORLD_TILES_Y + newExpansions * 2) * GARDEN_TILE_SIZE_PX;
+	const offset = GARDEN_TILE_SIZE_PX;
+
+	const nextPlantedTrees = (gardenState.plantedTrees || []).map(tree => {
+		const pixelX = (tree.x * oldW) / 100 + offset;
+		const pixelY = (tree.y * oldH) / 100 + offset;
+		return {
+			...tree,
+			x: (pixelX / newW) * 100,
+			y: (pixelY / newH) * 100
+		};
+	});
+
+	const nextGarden = { 
+		...gardenState, 
+		gardenExpansions: newExpansions,
+		plantedTrees: nextPlantedTrees
 	};
 
 	await Promise.all([
@@ -458,6 +531,60 @@ async function handleBuyTree(treeType) {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 	if (!message || !message.type) {
 		return;
+	}
+
+	if (message.type === 'DEV_SET_STATE') {
+		(async () => {
+			try {
+				const [currencyState, timerState, focusStats, gardenState] = await Promise.all([
+					getStoredCurrencyState(),
+					getStoredTimerState(),
+					getStoredFocusStats(),
+					getStoredGardenState()
+				]);
+
+				const nextCurrency = { ...currencyState };
+				const nextTimer = { ...timerState };
+				const nextFocusStats = { ...focusStats };
+				const nextGarden = { ...gardenState };
+
+				if (typeof message.points === 'number') nextCurrency.totalPoints = message.points;
+				
+				if (typeof message.timerSeconds === 'number') {
+					if (nextTimer.isRunning) {
+						nextTimer.startTimestampMs = Date.now() - (message.timerSeconds * 1000);
+					} else {
+						nextTimer.elapsedMs = message.timerSeconds * 1000;
+					}
+				}
+
+				await Promise.all([
+					setStoredCurrencyState(nextCurrency),
+					setStoredTimerState(nextTimer),
+					setStoredFocusStats(nextFocusStats),
+					setStoredGardenState(nextGarden)
+				]);
+
+				const response = toResponseState(nextTimer, nextCurrency, nextFocusStats, nextGarden);
+				sendResponse({ ok: true, state: response });
+			} catch (err) {
+				sendResponse({ ok: false, error: err.message });
+			}
+		})();
+		return true;
+	}
+
+	if (message.type === 'DEV_RESET_ALL') {
+		(async () => {
+			try {
+				await new Promise((resolve) => chrome.storage.local.clear(resolve));
+				const response = await getGardenResponse();
+				sendResponse({ ok: true, state: response });
+			} catch (err) {
+				sendResponse({ ok: false, error: err.message });
+			}
+		})();
+		return true;
 	}
 
 	if (message.type === 'TIMER_GET_STATE') {
@@ -497,7 +624,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 	}
 
 	if (message.type === 'GARDEN_BUY_TREE') {
-		handleBuyTree(message.treeType)
+		handleBuyTree(message.treeType, message.quantity)
+			.then((state) => {
+				sendResponse({ ok: true, state });
+			})
+			.catch((error) => {
+				sendResponse({ ok: false, error: error.message });
+			});
+
+		return true;
+	}
+
+	if (message.type === 'GARDEN_EXPAND') {
+		handleExpandGarden()
 			.then((state) => {
 				sendResponse({ ok: true, state });
 			})

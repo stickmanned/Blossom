@@ -14,6 +14,22 @@ const domainsList = document.getElementById('domainsList');
 const shopPane = document.getElementById('shopPane');
 const shopItems = document.getElementById('shopItems');
 const shopStatus = document.getElementById('shopStatus');
+const shopDetailSheet = document.getElementById('shopDetailSheet');
+const shopDetailIcon = document.getElementById('shopDetailIcon');
+const shopDetailName = document.getElementById('shopDetailName');
+const shopDetailDesc = document.getElementById('shopDetailDesc');
+const shopDetailStats = document.getElementById('shopDetailStats');
+const shopDetailBuy = document.getElementById('shopDetailBuy');
+const shopDetailClose = document.getElementById('shopDetailClose');
+const shopDetailMinus = document.getElementById('shopDetailMinus');
+const shopDetailPlus = document.getElementById('shopDetailPlus');
+const shopDetailQty = document.getElementById('shopDetailQty');
+const shopDetailMax = document.getElementById('shopDetailMax');
+const shopDetailTotal = document.getElementById('shopDetailTotal');
+
+let selectedShopItem = null;
+let selectedShopQuantity = 1;
+
 const gardenPlot = document.getElementById('gardenPlot');
 const gardenWorld = document.getElementById('gardenWorld');
 const gardenTrees = document.getElementById('gardenTrees');
@@ -25,35 +41,36 @@ const BLOCKED_DOMAINS_KEY = 'blockedDomains';
 const GARDEN_TILE_SIZE_PX = 120;
 const GARDEN_WORLD_TILES_X = 6;
 const GARDEN_WORLD_TILES_Y = 6;
-const GARDEN_WORLD_WIDTH_PX = GARDEN_TILE_SIZE_PX * GARDEN_WORLD_TILES_X;
-const GARDEN_WORLD_HEIGHT_PX = GARDEN_TILE_SIZE_PX * GARDEN_WORLD_TILES_Y;
 
 const TREE_DEFINITIONS = {
 	blossom: {
 		label: 'Blossom',
+		growthTimeMin: 60,
 		stages: [
 			{ threshold: 0, image: 'blossom stages/blossom 1.png' },
-			{ threshold: 12, image: 'blossom stages/blossom 2.png' },
-			{ threshold: 30, image: 'blossom stages/blossom 3.png' },
-			{ threshold: 60, image: 'blossom stages/blossom 4.png' },
-			{ threshold: 90, image: 'blossom stages/blossom 5.png' }
+			{ threshold: 900, image: 'blossom stages/blossom 2.png' },
+			{ threshold: 1800, image: 'blossom stages/blossom 3.png' },
+			{ threshold: 2700, image: 'blossom stages/blossom 4.png' },
+			{ threshold: 3600, image: 'blossom stages/blossom 5.png' }
 		]
 	},
 	glowberry: {
 		label: 'Glowberry',
+		growthTimeMin: 300,
 		stages: [
 			{ threshold: 0, image: 'glowberry tree/glow 1.png' },
-			{ threshold: 18, image: 'glowberry tree/glow 2.png' },
-			{ threshold: 42, image: 'glowberry tree/glow 3.png' },
-			{ threshold: 72, image: 'glowberry tree/glow 4.png' }
+			{ threshold: 6000, image: 'glowberry tree/glow 2.png' },
+			{ threshold: 12000, image: 'glowberry tree/glow 3.png' },
+			{ threshold: 18000, image: 'glowberry tree/glow 4.png' }
 		]
 	},
 	fire: {
 		label: 'Fire',
+		growthTimeMin: 120,
 		stages: [
 			{ threshold: 0, image: 'fire tree/fire 1.png' },
-			{ threshold: 24, image: 'fire tree/fire 2.png' },
-			{ threshold: 60, image: 'fire tree/fire 3.png' }
+			{ threshold: 3600, image: 'fire tree/fire 2.png' },
+			{ threshold: 7200, image: 'fire tree/fire 3.png' }
 		]
 	}
 };
@@ -78,6 +95,7 @@ let coinSoundRetryTimeoutId = null;
 
 let gardenViewOffsetX = 0;
 let gardenViewOffsetY = 0;
+let gardenZoomScale = 1.0;
 let isDraggingGarden = false;
 let dragStartClientX = 0;
 let dragStartClientY = 0;
@@ -95,7 +113,9 @@ let gardenState = {
 		fire: 0
 	},
 	plantedTrees: [],
-	treeCatalog: []
+	treeCatalog: [],
+	gardenExpansions: 0,
+	gardenExpandCost: 100
 };
 
 function formatElapsed(totalSeconds) {
@@ -103,6 +123,13 @@ function formatElapsed(totalSeconds) {
 	const minutes = Math.floor(safeSeconds / 60);
 	const seconds = safeSeconds % 60;
 	return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatCoins(num) {
+	if (num >= 1000000000) return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+	if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+	if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+	return num.toString();
 }
 
 function applyGardenPlotTexture() {
@@ -113,20 +140,36 @@ function applyGardenPlotTexture() {
 	gardenWorld.style.backgroundImage = `url("${chrome.runtime.getURL('garden plot.png')}")`;
 }
 
+function getGardenWorldWidth() {
+	const expansions = gardenState.gardenExpansions || 0;
+	return GARDEN_TILE_SIZE_PX * (GARDEN_WORLD_TILES_X + expansions * 2);
+}
+
+function getGardenWorldHeight() {
+	const expansions = gardenState.gardenExpansions || 0;
+	return GARDEN_TILE_SIZE_PX * (GARDEN_WORLD_TILES_Y + expansions * 2);
+}
+
+function applyGardenWorldSize() {
+	if (!gardenWorld) return;
+	gardenWorld.style.width = `${getGardenWorldWidth()}px`;
+	gardenWorld.style.height = `${getGardenWorldHeight()}px`;
+}
+
 function clamp(value, min, max) {
 	return Math.min(max, Math.max(min, value));
 }
 
 function getPanBounds() {
 	if (!gardenPlot) {
-		return {
-			maxX: 0,
-			maxY: 0
-		};
+		return { maxX: 0, maxY: 0 };
 	}
 
-	const maxX = Math.max(0, GARDEN_WORLD_WIDTH_PX - gardenPlot.clientWidth);
-	const maxY = Math.max(0, GARDEN_WORLD_HEIGHT_PX - gardenPlot.clientHeight);
+	const scaledWidth = getGardenWorldWidth() * gardenZoomScale;
+	const scaledHeight = getGardenWorldHeight() * gardenZoomScale;
+
+	const maxX = Math.max(0, scaledWidth - gardenPlot.clientWidth);
+	const maxY = Math.max(0, scaledHeight - gardenPlot.clientHeight);
 
 	return { maxX, maxY };
 }
@@ -136,7 +179,7 @@ function applyGardenTransform() {
 		return;
 	}
 
-	gardenWorld.style.transform = `translate(${-gardenViewOffsetX}px, ${-gardenViewOffsetY}px)`;
+	gardenWorld.style.transform = `translate(${-gardenViewOffsetX}px, ${-gardenViewOffsetY}px) scale(${gardenZoomScale})`;
 }
 
 function recenterGardenViewport() {
@@ -263,8 +306,22 @@ function renderBlockedDomains() {
 		const item = document.createElement('li');
 		item.className = 'domains-pane__item';
 
+		const left = document.createElement('div');
+		left.className = 'domains-pane__item-left';
+
+		const favicon = document.createElement('img');
+		favicon.className = 'domains-pane__favicon';
+		favicon.src = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
+		favicon.alt = '';
+		favicon.width = 16;
+		favicon.height = 16;
+
 		const label = document.createElement('span');
+		label.className = 'domains-pane__domain-label';
 		label.textContent = domain;
+
+		left.appendChild(favicon);
+		left.appendChild(label);
 
 		const removeButton = document.createElement('button');
 		removeButton.type = 'button';
@@ -272,7 +329,7 @@ function renderBlockedDomains() {
 		removeButton.textContent = 'Remove';
 		removeButton.dataset.domain = domain;
 
-		item.appendChild(label);
+		item.appendChild(left);
 		item.appendChild(removeButton);
 		domainsList.appendChild(item);
 	});
@@ -350,7 +407,7 @@ function updatePointsDisplay(pointsValue) {
 		return;
 	}
 
-	coinCountDisplay.textContent = String(Math.max(0, Math.floor(pointsValue || 0)));
+	coinCountDisplay.textContent = formatCoins(Math.max(0, Math.floor(pointsValue || 0)));
 }
 
 function getStageImageForTree(tree, elapsedSeconds) {
@@ -409,7 +466,7 @@ function renderTreeSelect() {
 	}
 }
 
-function renderGardenTrees() {
+function renderGardenTrees(newTreeId = null) {
 	if (!gardenTrees) {
 		return;
 	}
@@ -424,6 +481,9 @@ function renderGardenTrees() {
 		image.className = 'garden__tree-instance';
 		if (lastKnownState?.isRunning && lastKnownState.activeTreeId === tree.id) {
 			image.classList.add('is-active');
+		}
+		if (tree.id && tree.id === newTreeId) {
+			image.classList.add('is-new');
 		}
 
 		image.src = imagePath;
@@ -452,6 +512,51 @@ function renderPlantingHint(message) {
 	plantingHint.textContent = message;
 }
 
+function formatShopDetailStats(item) {
+	// Fallback to local definitions if background data is stale
+	const localDef = TREE_DEFINITIONS[item.type] || {};
+	const ppi = item.pointsPerInterval || localDef.pointsPerInterval || 1;
+	const growthMin = item.growthTimeMin || localDef.growthTimeMin || 60;
+
+	// Format growth time: 1 hour for Blossom, else hours if >= 60
+	const growthStr = growthMin === 60 ? '1 hour' : (growthMin >= 60 ? `${Math.floor(growthMin / 60)} hours` : `${growthMin} minutes`);
+
+	return `${ppi} coin/min | Growth Time: ${growthStr}`;
+}
+
+function updateShopDetailTotal() {
+	if (!selectedShopItem || !shopDetailTotal) return;
+
+	let qty = parseInt(shopDetailQty?.value || '1', 10);
+	if (isNaN(qty) || qty < 1) qty = 1;
+
+	const costPerTree = selectedShopItem.cost || 1;
+	const maxAffordable = Math.floor(gardenState.points / costPerTree);
+
+	if (qty > maxAffordable && maxAffordable > 0) {
+		qty = maxAffordable;
+	} else if (maxAffordable === 0) {
+		qty = 1;
+	}
+
+	selectedShopQuantity = qty;
+	if (shopDetailQty) shopDetailQty.value = qty;
+
+	const totalCost = costPerTree * selectedShopQuantity;
+
+	if (costPerTree === 0) {
+		shopDetailTotal.textContent = `Cost: Free`;
+	} else {
+		shopDetailTotal.textContent = `Cost: ${formatCoins(totalCost)} coins`;
+	}
+
+	if (shopDetailBuy) {
+		let isBlossom = selectedShopItem.type === 'blossom';
+		shopDetailBuy.disabled = gardenState.points < totalCost || !selectedShopItem.canBuy || isBlossom;
+		shopDetailBuy.textContent = isBlossom ? 'Starter Tree' : 'Buy';
+	}
+}
+
 function renderShopState(statusMessage = '') {
 	if (!shopItems) {
 		return;
@@ -460,39 +565,37 @@ function renderShopState(statusMessage = '') {
 	shopItems.textContent = '';
 	const catalog = Array.isArray(gardenState.treeCatalog) ? gardenState.treeCatalog : [];
 	catalog.forEach((item) => {
-		if (item.type === 'blossom') {
-			return;
-		}
-
-		const row = document.createElement('div');
 		const ownedCount = Number(item.ownedCount || 0);
-		row.className = `shop-pane__item${ownedCount > 0 ? ' is-unlocked' : ''}`;
+		const tile = document.createElement('button');
+		tile.className = `shop-pane__tile${ownedCount > 0 ? ' is-unlocked' : ''}`;
+		tile.type = 'button';
+		tile.dataset.treeType = item.type;
 
-		const info = document.createElement('div');
-		const name = document.createElement('p');
-		name.className = 'shop-pane__item-name';
+		const img = document.createElement('img');
+		img.className = 'shop-pane__tile-img';
+		img.src = TREE_DEFINITIONS[item.type]?.stages.slice(-1)[0].image || '';
+		img.alt = item.label;
+
+		const name = document.createElement('span');
+		name.className = 'shop-pane__tile-name';
 		name.textContent = item.label;
-		const desc = document.createElement('p');
-		desc.className = 'shop-pane__item-desc';
-		desc.textContent = `Cost: ${item.cost} coins | Owned: ${ownedCount}`;
 
-		info.appendChild(name);
-		info.appendChild(desc);
-
-		const action = document.createElement('button');
-		action.type = 'button';
-		action.className = 'shop-pane__buy';
-		action.dataset.treeType = item.type;
-		action.textContent = `Buy (${item.cost})`;
-		action.disabled = !item.canBuy;
-
-		row.appendChild(info);
-		row.appendChild(action);
-		shopItems.appendChild(row);
+		tile.appendChild(img);
+		tile.appendChild(name);
+		shopItems.appendChild(tile);
 	});
 
 	if (shopStatus) {
-		shopStatus.textContent = statusMessage || `Coins: ${gardenState.points}`;
+		shopStatus.textContent = statusMessage || `Coins: ${formatCoins(gardenState.points)}`;
+	}
+
+	if (selectedShopItem && shopDetailStats && shopDetailBuy) {
+		const updatedItem = catalog.find((i) => i.type === selectedShopItem.type);
+		if (updatedItem) {
+			selectedShopItem = updatedItem;
+			shopDetailStats.textContent = formatShopDetailStats(updatedItem);
+			shopDetailBuy.disabled = !updatedItem.canBuy;
+		}
 	}
 }
 
@@ -504,7 +607,35 @@ function renderGarden() {
 	renderShopState();
 }
 
+function updateExpandBtn() {
+	const expandGardenBtn = document.getElementById('expandGardenBtn');
+	const expandGardenCost = document.getElementById('expandGardenCost');
+	if (!expandGardenBtn) return;
+
+	const expansions = gardenState.gardenExpansions || 0;
+	const cost = gardenState.gardenExpandCost;
+
+	if (expansions >= 100 || cost === null) {
+		expandGardenBtn.disabled = true;
+		if (expandGardenCost) expandGardenCost.textContent = 'MAX';
+	} else {
+		expandGardenBtn.disabled = (gardenState.points || 0) < cost;
+		if (expandGardenCost) expandGardenCost.textContent = formatCoins(cost) + ' C';
+	}
+}
+
 function mergeGardenStateFromResponse(state) {
+	const oldExpansions = gardenState.gardenExpansions || 0;
+	const newExpansions = typeof state.gardenExpansions === 'number' ? state.gardenExpansions : oldExpansions;
+
+	// If expansion occurred, shift camera so tiles appear added on all sides evenly
+	if (newExpansions > oldExpansions) {
+		const diff = newExpansions - oldExpansions;
+		gardenViewOffsetX += diff * GARDEN_TILE_SIZE_PX;
+		gardenViewOffsetY += diff * GARDEN_TILE_SIZE_PX;
+		applyGardenTransform();
+	}
+
 	gardenState = {
 		...gardenState,
 		points: Math.max(0, Math.floor(state.points || 0)),
@@ -514,9 +645,13 @@ function mergeGardenStateFromResponse(state) {
 			...(state.treeInventory || {})
 		},
 		plantedTrees: Array.isArray(state.plantedTrees) ? state.plantedTrees : gardenState.plantedTrees,
-		treeCatalog: Array.isArray(state.treeCatalog) ? state.treeCatalog : gardenState.treeCatalog
+		treeCatalog: Array.isArray(state.treeCatalog) ? state.treeCatalog : gardenState.treeCatalog,
+		gardenExpansions: newExpansions,
+		gardenExpandCost: state.gardenExpandCost !== undefined ? state.gardenExpandCost : gardenState.gardenExpandCost
 	};
 
+	applyGardenWorldSize();
+	updateExpandBtn();
 	renderGarden();
 }
 
@@ -608,9 +743,19 @@ function stopContinuousCoinSound(forceStop = false) {
 }
 
 function pickRandomCoinSoundPath() {
-	const randomIndex = Math.floor(Math.random() * COIN_SOUND_PATHS.length);
-	return COIN_SOUND_PATHS[randomIndex];
+	const index = Math.floor(Math.random() * 4) + 1;
+	return `sounds/coins-${index}.wav`;
 }
+
+/** Plays a single random coin sound (for Buy / stop-timer completion). */
+function playCoinSound() {
+	try {
+		const audio = new Audio(pickRandomCoinSoundPath());
+		audio.volume = 0.65;
+		audio.play().catch(() => { /* user gesture may not allow it */ });
+	} catch (_e) { /* ignore */ }
+}
+
 
 function scheduleCoinSoundRetry(runId) {
 	if (!shouldPlayContinuousCoinSound || runId !== coinSoundRunId) {
@@ -771,8 +916,11 @@ async function animateStopConversion(state) {
 		timerButton.textContent = 'Click to start timer';
 	}
 
-	const totalSteps = Math.max(1, earnedPoints, Math.floor(earnedElapsedMs / 1000));
-	const delayPerStepMs = Math.max(50, Math.min(180, Math.floor(4000 / totalSteps)));
+	const earnedSeconds = Math.floor(earnedElapsedMs / 1000);
+	const totalSteps = Math.min(60, Math.max(1, earnedSeconds, earnedPoints));
+
+	let delayMs = 300; // Start pacing for animation
+	const minDelayMs = 20; // Final speed
 
 	if (earnedPoints > 0) {
 		startContinuousCoinSound();
@@ -780,16 +928,23 @@ async function animateStopConversion(state) {
 
 	try {
 		for (let step = 1; step <= totalSteps; step += 1) {
-			const consumedMs = Math.floor((earnedElapsedMs * step) / totalSteps);
-			const remainingMs = Math.max(0, earnedElapsedMs - consumedMs);
+			// Delays accelerate from slow to fast
+			delayMs = Math.max(minDelayMs, delayMs * 0.82);
+
+			const progress = step / totalSteps;
+
+			// Timer counts down based on total visual progress
+			const consumedSeconds = Math.round(earnedSeconds * progress);
+			const remainingSeconds = Math.max(0, earnedSeconds - consumedSeconds);
 			if (timerDisplay) {
-				timerDisplay.textContent = formatElapsed(Math.floor(remainingMs / 1000));
+				timerDisplay.textContent = formatElapsed(remainingSeconds);
 			}
 
-			const appliedPoints = Math.floor((earnedPoints * step) / totalSteps);
+			// Award coins based on total visual progress
+			const appliedPoints = Math.round(earnedPoints * progress);
 			updatePointsDisplay(startingPoints + appliedPoints);
 
-			await sleep(delayPerStepMs);
+			await sleep(delayMs);
 		}
 	} finally {
 		stopContinuousCoinSound();
@@ -820,7 +975,7 @@ async function stopFocusSession() {
 
 	renderFromState(state);
 	syncUiTickerWithState(state);
-	await refreshGardenState().catch(() => {});
+	await refreshGardenState().catch(() => { });
 }
 
 async function startFocusSessionFromPlanting(xPercent, yPercent) {
@@ -847,31 +1002,141 @@ function setupShopPane() {
 	setShopPaneOpen(false);
 	renderShopState();
 
+	const hideSheet = () => {
+		selectedShopItem = null;
+		selectedShopQuantity = 1;
+		if (shopDetailQty) shopDetailQty.value = '1';
+		if (shopDetailSheet) shopDetailSheet.classList.add('is-hidden');
+	};
+
+	const expandGardenBtn = document.getElementById('expandGardenBtn');
+	const expandGardenCost = document.getElementById('expandGardenCost');
+
+	updateExpandBtn();
+
+	if (expandGardenBtn) {
+		expandGardenBtn.addEventListener('click', async () => {
+			expandGardenBtn.disabled = true;
+			try {
+				const response = await sendRuntimeMessage({ type: 'GARDEN_EXPAND' });
+				mergeGardenStateFromResponse(response);
+				if (response.errorCode === 'INSUFFICIENT_POINTS') {
+					renderShopState('Not enough coins to expand!');
+				} else if (response.errorCode === 'MAX_EXPANSIONS') {
+					renderShopState('Garden is at maximum size!');
+				} else {
+					playCoinSound();
+					renderShopState(`Garden expanded! (${gardenState.gardenExpansions}/100)`);
+				}
+				updateExpandBtn();
+			} catch (_e) {
+				renderShopState('Could not expand garden.');
+				updateExpandBtn();
+			}
+		});
+	}
+
 	coinButton.addEventListener('click', () => {
 		const isHidden = shopPane.hasAttribute('hidden');
 		setShopPaneOpen(isHidden);
+		if (!isHidden) {
+			hideSheet();
+		}
 	});
 
-	shopItems.addEventListener('click', async (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLButtonElement)) {
+	if (shopDetailClose) {
+		shopDetailClose.addEventListener('click', hideSheet);
+	}
+
+	if (shopDetailQty) {
+		shopDetailQty.addEventListener('input', () => {
+			updateShopDetailTotal();
+		});
+	}
+
+	if (shopDetailMinus) {
+		shopDetailMinus.addEventListener('click', () => {
+			let val = parseInt(shopDetailQty?.value || '1', 10);
+			if (isNaN(val)) val = 1;
+			shopDetailQty.value = Math.max(1, val - 1);
+			updateShopDetailTotal();
+		});
+	}
+
+	if (shopDetailPlus) {
+		shopDetailPlus.addEventListener('click', () => {
+			let val = parseInt(shopDetailQty?.value || '1', 10);
+			if (isNaN(val)) val = 1;
+			shopDetailQty.value = val + 1;
+			updateShopDetailTotal();
+		});
+	}
+
+	if (shopDetailMax) {
+		shopDetailMax.addEventListener('click', () => {
+			if (!selectedShopItem) return;
+			const maxAffordable = Math.floor(gardenState.points / (selectedShopItem.cost || 1));
+			shopDetailQty.value = Math.max(1, maxAffordable);
+			updateShopDetailTotal();
+		});
+	}
+
+	shopItems.addEventListener('click', (event) => {
+		const target = event.target.closest('.shop-pane__tile');
+		if (!target) {
 			return;
 		}
 
 		const treeType = target.dataset.treeType;
-		if (!treeType) {
+		const item = (gardenState.treeCatalog || []).find(i => i.type === treeType);
+		if (!item || !shopDetailSheet) {
 			return;
 		}
 
-		target.disabled = true;
-		try {
-			const response = await sendRuntimeMessage({ type: 'GARDEN_BUY_TREE', treeType });
-			mergeGardenStateFromResponse(response);
-			renderShopState(response.errorCode === 'INSUFFICIENT_POINTS' ? 'Not enough coins.' : 'Tree purchased.');
-		} catch (_error) {
-			renderShopState('Could not complete purchase.');
+		selectedShopItem = item;
+		shopDetailIcon.src = TREE_DEFINITIONS[item.type]?.stages.slice(-1)[0].image || '';
+		shopDetailName.textContent = item.label;
+		if (shopDetailDesc) shopDetailDesc.textContent = item.description || '';
+		shopDetailStats.textContent = formatShopDetailStats(item);
+
+		// For Blossom (starter tree) hide purchase controls
+		const purchaseArea = document.getElementById('shopDetailPurchaseArea');
+		if (purchaseArea) {
+			if (item.type === 'blossom') {
+				purchaseArea.classList.add('is-hidden');
+			} else {
+				purchaseArea.classList.remove('is-hidden');
+				selectedShopQuantity = 1;
+				if (shopDetailQty) shopDetailQty.value = '1';
+				updateShopDetailTotal();
+			}
 		}
+
+		shopDetailSheet.classList.remove('is-hidden');
 	});
+
+	if (shopDetailBuy) {
+		shopDetailBuy.addEventListener('click', async () => {
+			if (!selectedShopItem) {
+				return;
+			}
+
+			shopDetailBuy.disabled = true;
+			try {
+				const response = await sendRuntimeMessage({
+					type: 'GARDEN_BUY_TREE',
+					treeType: selectedShopItem.type,
+					quantity: selectedShopQuantity
+				});
+				// Play a random coin sound on successful purchase
+				playCoinSound();
+				mergeGardenStateFromResponse(response);
+				renderShopState(response.errorCode === 'INSUFFICIENT_POINTS' ? 'Not enough coins.' : 'Tree purchased.');
+			} catch (_error) {
+				renderShopState('Could not complete purchase.');
+			}
+		});
+	}
 }
 
 function setupBlockedDomainsPane() {
@@ -974,6 +1239,28 @@ function setupPlantingFlow() {
 
 	window.addEventListener('mouseleave', stopDragging);
 
+	gardenPlot.addEventListener('wheel', (event) => {
+		event.preventDefault();
+		const oldScale = gardenZoomScale;
+
+		// Greatly reduced sensitivity. Math.sign ensures consistent movement across
+		// vastly different scroll-wheel deltas, scaling by 0.05 per tick.
+		const zoomDelta = event.deltaY === 0 ? 0 : Math.sign(event.deltaY) * -0.05;
+		gardenZoomScale = clamp(gardenZoomScale + zoomDelta, 0.5, 3.0);
+
+		if (gardenZoomScale === oldScale) return;
+
+		const rect = gardenPlot.getBoundingClientRect();
+		const mouseX = clamp(event.clientX - rect.left, 0, rect.width);
+		const mouseY = clamp(event.clientY - rect.top, 0, rect.height);
+
+		const scaleRatio = gardenZoomScale / oldScale;
+		gardenViewOffsetX = (gardenViewOffsetX + mouseX) * scaleRatio - mouseX;
+		gardenViewOffsetY = (gardenViewOffsetY + mouseY) * scaleRatio - mouseY;
+
+		setGardenViewOffset(gardenViewOffsetX, gardenViewOffsetY);
+	});
+
 	gardenPlot.addEventListener('click', async (event) => {
 		if (suppressNextPlotClick) {
 			suppressNextPlotClick = false;
@@ -987,10 +1274,26 @@ function setupPlantingFlow() {
 		const rect = gardenPlot.getBoundingClientRect();
 		const viewportX = clamp(event.clientX - rect.left, 0, rect.width);
 		const viewportY = clamp(event.clientY - rect.top, 0, rect.height);
-		const worldX = viewportX + gardenViewOffsetX;
-		const worldY = viewportY + gardenViewOffsetY;
-		const xPercent = (worldX / GARDEN_WORLD_WIDTH_PX) * 100;
-		const yPercent = (worldY / GARDEN_WORLD_HEIGHT_PX) * 100;
+		const worldX = (viewportX + gardenViewOffsetX) / gardenZoomScale;
+		const worldY = (viewportY + gardenViewOffsetY) / gardenZoomScale;
+		const xPercent = (worldX / getGardenWorldWidth()) * 100;
+		const yPercent = (worldY / getGardenWorldHeight()) * 100;
+
+		// Collision detection: use a fixed pixel distance (80px radius)
+		// so spacing doesn't increase when the world expands.
+		const MIN_DIST_PX = 80;
+		const worldW = getGardenWorldWidth();
+		const worldH = getGardenWorldHeight();
+		const plantedTrees = Array.isArray(gardenState.plantedTrees) ? gardenState.plantedTrees : [];
+		const tooClose = plantedTrees.some((tree) => {
+			const dxPx = (tree.x - xPercent) * worldW / 100;
+			const dyPx = (tree.y - yPercent) * worldH / 100;
+			return Math.sqrt(dxPx * dxPx + dyPx * dyPx) < MIN_DIST_PX;
+		});
+		if (tooClose) {
+			renderPlantingHint('Too close to another tree! Pick a different spot.');
+			return;
+		}
 
 		isToggling = true;
 		try {
@@ -1031,12 +1334,88 @@ function setupPlantingFlow() {
 
 		startPlantingMode();
 	});
+
+	// --- Developer Mode ("dev") ---
+	let isHoveringTimer = false;
+	let devKeyBuffer = "";
+	const DEV_KEY = "dev";
+
+	timerButton.addEventListener('mouseenter', () => {
+		isHoveringTimer = true;
+		devKeyBuffer = "";
+	});
+
+	timerButton.addEventListener('mouseleave', () => {
+		isHoveringTimer = false;
+	});
+
+	window.addEventListener('keydown', (event) => {
+		const panel = document.getElementById('devPanel');
+		if (!isHoveringTimer || (panel && panel.classList.contains('is-open'))) return;
+
+		devKeyBuffer += event.key;
+		if (devKeyBuffer === DEV_KEY) {
+			showDevPanel();
+			devKeyBuffer = "";
+		} else if (!DEV_KEY.startsWith(devKeyBuffer)) {
+			devKeyBuffer = "";
+		}
+	});
+
+	function showDevPanel() {
+		const panel = document.getElementById('devPanel');
+		if (panel) panel.classList.add('is-open');
+	}
+
+	const devClose = document.getElementById('devClose');
+	const devPointsInput = document.getElementById('devPointsInput');
+	const devTimeInput = document.getElementById('devTimeInput');
+	const devApply = document.getElementById('devApply');
+
+	if (devClose) devClose.addEventListener('click', () => {
+		devKeyBuffer = "";
+		document.getElementById('devPanel').classList.remove('is-open');
+	});
+
+	if (devApply) devApply.addEventListener('click', async () => {
+		const points = parseInt(devPointsInput.value, 10);
+		const timerSeconds = parseInt(devTimeInput.value, 10);
+
+		const updateData = { type: 'DEV_SET_STATE' };
+		if (!isNaN(points)) updateData.points = points;
+		if (!isNaN(timerSeconds)) updateData.timerSeconds = timerSeconds;
+
+		const response = await sendRuntimeMessage(updateData);
+		if (response && response.ok && response.state) {
+			const newState = response.state;
+			updateTimerState(newState);
+			updateTimerUIInterval(newState);
+			updateGardenUI(newState);
+		} else {
+			console.error('Dev mode update failed:', response?.error || 'Unknown error');
+		}
+
+		devKeyBuffer = "";
+		document.getElementById('devPanel').classList.remove('is-open');
+	});
+
+	const devReset = document.getElementById('devReset');
+	if (devReset) devReset.addEventListener('click', async () => {
+		const response = await sendRuntimeMessage({ type: 'DEV_RESET_ALL' });
+		if (response && response.ok) {
+			// Reloading the popup is the absolute most reliable way to reset internal variables
+			window.location.reload();
+		} else {
+			console.error('Full reset failed:', response?.error || 'Unknown error');
+		}
+	});
 }
 
 setupBlockedDomainsPane();
 setupShopPane();
 setupPlantingFlow();
 applyGardenPlotTexture();
+applyGardenWorldSize();
 recenterGardenViewport();
 
 refreshState()
